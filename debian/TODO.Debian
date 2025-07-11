@@ -1,0 +1,19 @@
+go dependencies needs to be packaged:
+* github.com/a-h/templ (Taavi is working on this)
+* github.com/facebookgo/flagenv
+  * Abandoned upstream, now lives in 'facebookarchive' github org
+* github.com/redis/go-redis/v9
+  * Unstable has a buggy v6
+
+go build errors related to 'thoth', a non-free addon service for Anubis, maybe could just be patched out?:
+src/github.com/TecharoHQ/anubis/internal/thoth/asnchecker.go:14:2: cannot find package "github.com/TecharoHQ/thoth-proto/gen/techaro/thoth/iptoasn/v1" in any of:
+src/github.com/TecharoHQ/anubis/internal/thoth/cachediptoasn.go:11:2: cannot find package "github.com/gaissmai/bart" in any of:
+
+needs investigation about vendoring:
+src/github.com/TecharoHQ/anubis/xess/xess.go:16:13: pattern *.css: no matching files found
+
+write proper package description
+
+frontend build process
+
+systemd integration
