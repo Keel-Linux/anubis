@@ -1,5 +1,7 @@
 #!/usr/bin/make -f
 
+export DH_GOLANG_INSTALL_EXTRA := data/ lib/localization/locales/*.json
+
 %:
 	dh $@ --builddirectory=_build --buildsystem=golang
 
