@@ -1,5 +1,5 @@
 anubis (1.21.0~pre1-1) UNRELEASED; urgency=medium
 
-  * Initial release (Closes: TODO)
+  * Initial release (Closes: #1102132)
 
  -- Taavi Väänänen <taavi@debian.org>  Fri, 11 Jul 2025 12:46:27 +0200
