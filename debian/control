@@ -7,6 +7,24 @@ Rules-Requires-Root: no
 Build-Depends: debhelper-compat (= 13),
                dh-sequence-golang,
                golang-any,
+               golang-github-cespare-xxhash-dev,
+               golang-github-coreos-bbolt-dev,
+               golang-github-go-redis-redis-dev,
+               golang-github-golang-jwt-jwt-v5-dev,
+               golang-github-google-cel-go-dev,
+               golang-github-google-uuid-dev,
+               golang-github-grpc-ecosystem-go-grpc-middleware-dev,
+               golang-github-joho-godotenv-dev,
+               golang-github-nicksnyder-go-i18n.v2-dev,
+               golang-github-prometheus-client-golang-dev,
+               golang-github-sebest-xff-dev,
+               golang-github-shirou-gopsutil-dev,
+               golang-golang-x-net-dev,
+               golang-golang-x-text-dev,
+               golang-google-grpc-dev,
+               golang-gopkg-yaml.v3-dev,
+               golang-k8s-apimachinery-dev,
+               golang-k8s-sigs-yaml-dev,
 Testsuite: autopkgtest-pkg-go
 Standards-Version: 4.7.0
 Vcs-Browser: https://salsa.debian.org/go-team/packages/anubis
@@ -89,4 +107,3 @@ Description: Weighs the soul of incoming HTTP requests to stop AI crawlers (prog
  Contributors
  .
  Made with contrib.rocks (https://contrib.rocks).
-
