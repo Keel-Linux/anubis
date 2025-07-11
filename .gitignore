@@ -22,3 +22,5 @@ node_modules
 doc/VERSION
 
 web/static/locales/*.json
+/.pc/
+/_build/
