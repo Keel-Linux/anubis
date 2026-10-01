@@ -1,38 +1,29 @@
 # Build, lint and test this package on trixie (handbook decision 0041,
-# first implementation, step 5). The checks are "package / build" and
-# "package / autopkgtest".
+# first implementation, step 5). The checks are "build / trixie" and
+# "autopkgtest / trixie".
 #
-# build: gbp buildpackage in a debian:trixie container with
-# trixie-backports enabled (golang-1.26-go), source and binary. There is no
-# pristine-tar branch (debian/README.source): gbp builds the orig tarball
-# and its npm component from the upstream/<version> tag. lintian then
-# checks the .changes and any error or warning fails the job, as
-# packages/build of Keel-Linux/common does. Nothing is signed or
-# published; the files are kept as the artifact "debs".
+# Both jobs run in a Debian trixie system container, an unprivileged LXC
+# container with its own systemd on the self-hosted runner keel-lxc-1,
+# through the reusable workflow lxc-trixie.yml of Keel-Linux/.github. Keel
+# runs no application containers in CI, and the runner only accepts jobs
+# from the organization's reusable workflows.
+#
+# build: gbp buildpackage with trixie-backports enabled (golang-1.26-go),
+# source and binary. There is no pristine-tar branch (debian/README.source):
+# gbp builds the orig tarball and its npm component from the
+# upstream/<version> tag. lintian then checks the .changes and any error or
+# warning fails the job, as packages/build of Keel-Linux/common does.
+# Nothing is signed or published; the files are kept as the artifact "debs".
 #
 # autopkgtest: debian/tests/behind-nginx drives anubis@.service with
-# systemctl, so it runs in a system container: a trixie LXC container with
-# its own systemd, booted on the self-hosted runner keel-lxc-1 (labels self-
-# hosted, keel-lxc), as Keel-Linux/.github's test-appliance.yml boots
-# appliances. The container comes from the LXC download template,
-# autopkgtest is installed inside it, and the test runs there with
-# autopkgtest's null runner; the container is the isolation that isolation-
-# container asks for, and keel-ci-cleanup throws it away, as breaks-testbed
-# asks. Nothing is installed on the runner: the job uses only the lxc-*
-# commands of the runner's sudo policy and keel-ci-cleanup. autopkgtest-
-# virt-lxc is not used because the runner has no autopkgtest package and its
-# sudo policy has no lxc-copy.
+# systemctl, so it waits for the container's systemd, installs autopkgtest
+# inside the container and runs the test there with autopkgtest's null
+# runner; the container is the isolation that isolation-container asks for,
+# and it is destroyed at the end, as breaks-testbed asks.
 #
-# build stays on a GitHub-hosted runner in a debian:trixie job container,
-# as Keel-Linux/common's packages.yml builds its packages.
-#
-# Keel-Linux/.github's reusable build-deb.yml does not fit: it builds with
-# dpkg-buildpackage -b on the self-hosted runner, which has no build tools,
-# and neither uses gbp nor lints. This workflow follows Keel-Linux/common's
-# packages.yml instead.
-#
-# A pull request from a fork never reaches the self-hosted runner: the
-# autopkgtest job runs only for this repository's own branches.
+# A pull request from a fork never reaches the self-hosted runner: both jobs
+# run only for this repository's own branches, so a fork pull request gets
+# no build, lint or autopkgtest result here.
 name: package
 
 on:
@@ -44,100 +35,44 @@ on:
 permissions:
   contents: read
 
-env:
-  DEBIAN_FRONTEND: noninteractive
-
 jobs:
   build:
-    runs-on: ubuntu-latest
-    container: debian:trixie
-    timeout-minutes: 45
-    steps:
-      - name: Enable trixie-backports and install the tools
-        run: |
-          echo 'deb http://deb.debian.org/debian trixie-backports main' \
-            > /etc/apt/sources.list.d/trixie-backports.list
-          apt-get update -qq
-          apt-get install -y -qq --no-install-recommends \
-            ca-certificates git git-buildpackage \
-            devscripts equivs lintian
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-      - name: Track the upstream branch
-        run: |
-          git config --global --add safe.directory "$GITHUB_WORKSPACE"
-          # As gbp clone does: upstream's .gitattributes must not change
-          # what is exported, or the tree no longer matches the orig tarball.
-          gbp setup-gitattributes
-          git branch -f upstream origin/upstream
-      - name: Install the build dependencies
-        run: |
-          cd "$RUNNER_TEMP"
-          mk-build-deps --install --remove \
-            --tool 'apt-get -y -qq --no-install-recommends' \
-            "$GITHUB_WORKSPACE/debian/control"
-      - name: Build
-        run: |
-          gbp buildpackage --git-ignore-branch \
-            --git-export-dir="$RUNNER_TEMP/build-area" \
-            --git-builder='dpkg-buildpackage -us -uc'
-          mkdir dist
-          cp "$RUNNER_TEMP"/build-area/*.deb "$RUNNER_TEMP"/build-area/*.dsc \
-            "$RUNNER_TEMP"/build-area/*.tar.* "$RUNNER_TEMP"/build-area/*.buildinfo \
-            "$RUNNER_TEMP"/build-area/*.changes dist/
-      - name: Lint
-        run: |
-          lintian --fail-on error,warning --info --display-info \
-            dist/*.changes
-      - uses: actions/upload-artifact@v4
-        with:
-          name: debs
-          path: dist/
-          if-no-files-found: error
+    uses: keel-linux/.github/.github/workflows/lxc-trixie.yml@main
+    with:
+      backports: true
+      fetch-depth: 0
+      timeout: 45
+      artifact-dir: dist
+      artifact-name: debs
+      run: |
+        apt-get update -qq
+        apt-get install -y -qq --no-install-recommends \
+          ca-certificates git git-buildpackage devscripts equivs lintian
+        # As gbp clone does: upstream's .gitattributes must not change what
+        # is exported, or the tree no longer matches the orig tarball.
+        gbp setup-gitattributes
+        git branch -f upstream origin/upstream
+        (cd /tmp && mk-build-deps --install --remove \
+          --tool 'apt-get -y -qq --no-install-recommends' /src/debian/control)
+        gbp buildpackage --git-ignore-branch \
+          --git-export-dir=/tmp/build-area \
+          --git-builder='dpkg-buildpackage -us -uc'
+        lintian --fail-on error,warning --info --display-info \
+          /tmp/build-area/*.changes
+        mkdir dist
+        cp /tmp/build-area/*.deb /tmp/build-area/*.dsc /tmp/build-area/*.tar.* \
+          /tmp/build-area/*.buildinfo /tmp/build-area/*.changes dist/
 
   autopkgtest:
     needs: build
-    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
-    runs-on: [self-hosted, keel-lxc]
-    timeout-minutes: 30
-    env:
-      NAME: keel-pkg-${{ github.event.repository.name }}-${{ github.run_id }}-${{ github.run_attempt }}
-      SCRATCH: /var/tmp/keel-ci/keel-pkg-${{ github.event.repository.name }}-${{ github.run_id }}-${{ github.run_attempt }}
-    steps:
-      - uses: actions/download-artifact@v4
-        with:
-          name: debs
-          path: dist
-      - name: Boot a trixie LXC container
-        run: |
-          set -eu
-          lxc() { sudo -n "/usr/bin/lxc-$1" -P "$SCRATCH/lxc" -n "$NAME" "${@:2}"; }
-          mkdir -p "$SCRATCH/lxc"
-          lxc create -t download -- -d debian -r trixie -a amd64
-          lxc start
-          lxc wait -s RUNNING -t 60
-          state=
-          for _ in $(seq 60); do
-            state=$(lxc attach -- systemctl is-system-running 2>/dev/null || true)
-            case "$state" in running|degraded) break ;; esac
-            sleep 2
-          done
-          echo "systemd: $state"
-          case "$state" in running|degraded) ;; *) exit 1 ;; esac
-      - name: Install autopkgtest in the container and copy the packages in
-        run: |
-          set -eu
-          lxc() { sudo -n "/usr/bin/lxc-$1" -P "$SCRATCH/lxc" -n "$NAME" "${@:2}"; }
-          lxc attach --clear-env -- env DEBIAN_FRONTEND=noninteractive \
-            sh -c 'apt-get update -qq && apt-get install -y -qq --no-install-recommends autopkgtest dpkg-dev'
-          tar -C dist -cf - . | lxc attach -- sh -c 'mkdir -p /dist && tar -C /dist -xf -'
-      - name: Run debian/tests
-        run: |
-          set -eu
-          lxc() { sudo -n "/usr/bin/lxc-$1" -P "$SCRATCH/lxc" -n "$NAME" "${@:2}"; }
-          lxc attach --clear-env -- sh -c \
-            'autopkgtest --ignore-restrictions=isolation-container,breaks-testbed /dist/*.dsc /dist/*.deb -- null'
-      - name: Remove the container
-        if: always()
-        run: sudo -n /usr/local/sbin/keel-ci-cleanup "$NAME" "$SCRATCH" || true
+    uses: keel-linux/.github/.github/workflows/lxc-trixie.yml@main
+    with:
+      systemd: true
+      timeout: 30
+      download: debs
+      download-dir: dist
+      run: |
+        apt-get update -qq
+        apt-get install -y -qq --no-install-recommends autopkgtest dpkg-dev
+        autopkgtest --ignore-restrictions=isolation-container,breaks-testbed \
+          dist/*.dsc dist/*.deb -- null
