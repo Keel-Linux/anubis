@@ -1,0 +1,27 @@
+.TH ANUBIS\-ROBOTS2POLICY 1 2026-10-01 "anubis 1.27.0" "User Commands"
+.SH NAME
+anubis\-robots2policy \- convert a robots.txt into an Anubis policy
+.SH SYNOPSIS
+.B anubis\-robots2policy
+.RI [ options ]
+.B \-input
+.I robots.txt
+.SH DESCRIPTION
+Reads a robots.txt (a file, or \- for standard input) and writes
+the equivalent Anubis bot rules, in YAML by default.
+.B anubis\-robots2policy \-help
+lists every option.
+.TP
+.BI \-input " file|\-"
+The robots.txt to convert.
+.TP
+.BI \-output " file|\-"
+Where to write the rules (default standard output).
+.TP
+.BI \-action " ALLOW|DENY|CHALLENGE|WEIGH"
+Action for disallowed paths (default CHALLENGE).
+.TP
+.BI \-format " yaml|json"
+Output format.
+.SH SEE ALSO
+.BR anubis (1)

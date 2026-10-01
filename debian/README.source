@@ -1,0 +1,53 @@
+anubis source for Keel Linux
+============================
+
+Branches
+--------
+
+debian/sid   the Debian Go team's work-in-progress packaging, as on salsa
+             (go-team/packages/anubis, ITP #1102132), unchanged
+upstream     upstream imports; its history includes upstream's git history
+keel/trixie  this package, built for the Keel repository
+
+The Keel build runs dpkg-buildpackage -b from a clone of keel/trixie, so
+the upstream branch carries everything the build reads.
+
+Upstream tarball and the npm component
+--------------------------------------
+
+The main tarball is upstream's anubis-src-vendor-VERSION.tar.gz from the
+GitHub release, which already contains vendor/ (go mod vendor), signed
+with the key in debian/upstream/signing-key.asc:
+
+  gpgv --keyring debian/upstream/signing-key.asc \
+      anubis-src-vendor-VERSION.tar.gz.asc anubis-src-vendor-VERSION.tar.gz
+
+The npm component (npm/, the "npm" component of gbp.conf) holds the
+runtime JavaScript dependencies that esbuild bundles into the challenge
+pages; nothing from npm/ is installed as is. They are the closure of
+"preact" and "@aws-crypto/sha256-js" in package-lock.json:
+
+  preact, @aws-crypto/sha256-js, @aws-crypto/util, @aws-sdk/types,
+  @smithy/is-array-buffer, @smithy/types, @smithy/util-buffer-from,
+  @smithy/util-utf8, tslib
+
+To refresh it for a new upstream version, download each "resolved" URL of
+package-lock.json, check it against its "integrity" (sha512, base64), and
+unpack each tarball's package/ directory into npm/<name>. The development
+dependencies (esbuild, postcss, cssnano, playwright, ...) are not needed:
+esbuild comes from Debian and the CSS is bundled with esbuild.
+
+Generated files
+---------------
+
+The build regenerates the templ and stringer output with the vendored
+tools (go generate) and builds all JavaScript and CSS from source. The
+precompressed .gz, .zst and .br copies that web/build.sh writes are
+embedded but never served (anubis compresses on the fly).
+
+Towards Debian
+--------------
+
+Debian's Go team packages each module separately instead of vendoring;
+see debian/TODO.Debian for what remains before this can converge with
+the ITP.

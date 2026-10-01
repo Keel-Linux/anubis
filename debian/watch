@@ -1,4 +1,8 @@
 version=4
-opts="filenamemangle=s%(?:.*?)?v?(\d[\d.]*)\.tar\.gz%@PACKAGE@-$1.tar.gz%,\
+# Upstream's own source tarball with the Go modules vendored, signed with
+# the key in debian/upstream/signing-key.asc. The npm component is not
+# watched: debian/README.source says how to rebuild it from package-lock.json.
+opts="pgpsigurlmangle=s%$%.asc%,\
       uversionmangle=s/(\d)[_\.\-\+]?(RC|rc|pre|dev|beta|alpha)[.]?(\d*)$/$1~$2$3/" \
-  https://github.com/techarohq/anubis/tags .*/v?(\d\S*)\.tar\.gz debian
+  https://github.com/TecharoHQ/anubis/releases \
+  (?:.*?/)?anubis-src-vendor-(\d[\d.]*)\.tar\.gz

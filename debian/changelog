@@ -1,3 +1,25 @@
+anubis (1.27.0-0+keel1) trixie; urgency=medium
+
+  * Keel Linux build for trixie, based on the Debian Go team's
+    work-in-progress packaging (salsa go-team/packages/anubis, ITP
+    #1102132), which is kept as the debian/sid branch of this repository.
+  * New upstream release 1.27.0, from upstream's signed
+    anubis-src-vendor tarball (Go modules vendored) plus an npm component
+    with the nine runtime JavaScript dependencies at the lockfile's
+    versions; the build never uses the network.
+  * Build with golang-1.26-go (trixie-backports), as go.mod requires
+    1.26.3; build the challenge assets with trixie's esbuild, and xess
+    with esbuild instead of postcss and cssnano.
+  * Ship anubis@.service: a disabled template, DynamicUser, hardened; it
+    refuses to start without /etc/anubis/<instance>.key, the signing key,
+    which it copies into the runtime directory for the dynamic user.
+  * Ship /etc/anubis/default.env (loopback only) and the upstream
+    default policy as /etc/anubis/botPolicies.yaml.
+  * Add an autopkgtest: the instance behind nginx challenges a browser
+    and an unverified Googlebot, and refuses to start without a key.
+
+ -- Marcos Méndez <mendez.foto@gmail.com>  Thu, 01 Oct 2026 12:00:00 +0000
+
 anubis (1.21.0~pre1-1) UNRELEASED; urgency=medium
 
   * Initial release (Closes: #1102132)

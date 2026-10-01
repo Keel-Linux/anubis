@@ -1,9 +1,72 @@
 #!/usr/bin/make -f
 
-export DH_GOLANG_INSTALL_EXTRA := data/ lib/localization/locales/*.json
+include /usr/share/dpkg/pkg-info.mk
+
+# Go 1.26 or newer is required by go.mod; trixie has it in trixie-backports
+# (golang-1.26-go), which installs under /usr/lib/go-1.26.
+export PATH := /usr/lib/go-1.26/bin:$(PATH)
+
+# Never fetch: every Go module is in vendor/ and every JavaScript
+# dependency is in npm/ (the npm component of the source).
+export GOTOOLCHAIN := local
+export GOPROXY := off
+export GOFLAGS := -mod=vendor -trimpath -buildvcs=false
+export GOCACHE := $(CURDIR)/_build/go-cache
+export GOPATH := $(CURDIR)/_build/gopath
+export CGO_ENABLED := 0
+export NODE_PATH := $(CURDIR)/npm
+export SKIP_INTEGRATION := 1
+
+GO_LDFLAGS := -X 'github.com/TecharoHQ/anubis.Version=$(DEB_VERSION_UPSTREAM)'
+
+# Files the build generates outside _build, removed by clean.
+GENERATED := web/static/js web/static/locales \
+	lib/challenge/preact/static lib/challenge/proofofwork/static/js \
+	xess/xess.min.css
+
+# Packages whose tests need the network, a browser or a container runtime.
+TEST_SKIP := /internal/test$$|/cmd/containerbuild$$|/internal/dnsbl$$
+# Flaky by design: RenderIndex refuses a client without gzip support at
+# random (1 in 64), and this test sends no Accept-Encoding.
+TEST_SKIP_FLAKY := ^TestChallengeFor_ErrNotFound$$
 
 %:
-	dh $@ --builddirectory=_build --buildsystem=golang
+	dh $@
+
+override_dh_auto_configure:
+
+override_dh_auto_build:
+	# Upstream's "assets" target (Makefile) without npm: go generate runs
+	# templ, stringer and the challenge build.sh scripts with trixie's
+	# esbuild; xess is built with esbuild instead of postcss and cssnano,
+	# which Debian does not have, inlining the fonts as postcss-url did.
+	go generate ./...
+	./web/build.sh
+	esbuild xess/xess.css --bundle --minify --loader:.woff2=dataurl \
+		--outfile=xess/xess.min.css
+	mkdir -p _build/bin
+	go build -ldflags "$(GO_LDFLAGS)" -o _build/bin/anubis ./cmd/anubis
+	go build -ldflags "$(GO_LDFLAGS)" -o _build/bin/anubis-robots2policy ./cmd/robots2policy
+
+override_dh_auto_test:
+ifeq (,$(filter nocheck,$(DEB_BUILD_OPTIONS)))
+	go test -count=1 -skip '$(TEST_SKIP_FLAKY)' $$(go list ./... | grep -Ev '$(TEST_SKIP)')
+endif
 
 override_dh_auto_install:
-	dh_auto_install -- --no-source
+
+# dwz does not understand Go's DWARF; dh-golang skips it too.
+override_dh_dwz:
+
+# The binaries are static Go: record the toolchain they embed, as
+# dh-golang's misc:Static-Built-Using does (the modules are in vendor/,
+# part of this source).
+override_dh_gencontrol:
+	dh_gencontrol -- "-Vmisc:Static-Built-Using=$$(dpkg-query -W -f='$${source:Package} (= $${source:Version})' golang-1.26-go)"
+
+override_dh_installsystemd:
+	dh_installsystemd --no-enable --no-start --no-stop-on-upgrade
+
+override_dh_auto_clean:
+	rm -rf _build $(GENERATED)
+	find web/static lib/challenge -name '*.gz' -o -name '*.zst' -o -name '*.br' | xargs rm -f

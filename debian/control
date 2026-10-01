@@ -1,109 +1,36 @@
 Source: anubis
-Section: golang
+Section: httpd
 Priority: optional
-Maintainer: Debian Go Packaging Team <team+pkg-go@tracker.debian.org>
-Uploaders: Taavi Väänänen <taavi@debian.org>,
+Maintainer: KeelLinux maintainers <admin@keellinux.org>
+Uploaders: Marcos Méndez <mendez.foto@gmail.com>,
 Rules-Requires-Root: no
 Build-Depends: debhelper-compat (= 13),
-               dh-sequence-golang,
-               golang-any,
-               golang-github-cespare-xxhash-dev,
-               golang-github-coreos-bbolt-dev,
-               golang-github-go-redis-redis-dev,
-               golang-github-golang-jwt-jwt-v5-dev,
-               golang-github-google-cel-go-dev,
-               golang-github-google-uuid-dev,
-               golang-github-grpc-ecosystem-go-grpc-middleware-dev,
-               golang-github-joho-godotenv-dev,
-               golang-github-nicksnyder-go-i18n.v2-dev,
-               golang-github-prometheus-client-golang-dev,
-               golang-github-sebest-xff-dev,
-               golang-github-shirou-gopsutil-dev,
-               golang-golang-x-net-dev,
-               golang-golang-x-text-dev,
-               golang-google-grpc-dev,
-               golang-gopkg-yaml.v3-dev,
-               golang-k8s-apimachinery-dev,
-               golang-k8s-sigs-yaml-dev,
-Testsuite: autopkgtest-pkg-go
-Standards-Version: 4.7.0
-Vcs-Browser: https://salsa.debian.org/go-team/packages/anubis
-Vcs-Git: https://salsa.debian.org/go-team/packages/anubis.git
-Homepage: https://github.com/techarohq/anubis
+               brotli,
+               esbuild,
+               golang-1.26-go,
+               zstd,
+Standards-Version: 4.7.2
+Vcs-Browser: https://github.com/keel-linux/pkg-anubis
+Vcs-Git: https://github.com/keel-linux/pkg-anubis.git
+Homepage: https://anubis.techaro.lol
 XS-Go-Import-Path: github.com/TecharoHQ/anubis
 
 Package: anubis
-Section: TODO
 Architecture: any
 Depends: ${misc:Depends},
          ${shlibs:Depends},
 Static-Built-Using: ${misc:Static-Built-Using}
-Description: Weighs the soul of incoming HTTP requests to stop AI crawlers (program)
- Anubis
+Description: proof-of-work HTTP proxy that challenges scraper bots
+ Anubis is a reverse proxy that weighs incoming HTTP requests against a
+ policy of rules (user agent, path, address ranges, expressions) and,
+ for the requests that look like automated scrapers, answers with a
+ challenge page whose JavaScript proof of work a browser solves once
+ before it receives a signed cookie and reaches the protected site.
  .
- [Image: enbyware] (https://pride-
- badges.pony.workers.
- dev/static/v1?label=enbyware&labelColor=%23555&stripeWidth=8&stripeColors=FCF434%2CFFFFFF%2C9C59D1%2C2C2C2C)
- [Image: GitHub Issues or Pull Requests by label]
- (https://img.shields.io/github/issues/TecharoHQ/anubis) [Image: GitHub
- go.mod Go version] (https://img.shields.io/github/go-mod/go-
- version/TecharoHQ/anubis) [Image: language count]
- (https://img.shields.io/github/languages/count/TecharoHQ/anubis) [Image:
- repo size] (https://img.shields.io/github/repo-size/TecharoHQ/anubis)
- [Image: GitHub Sponsors] (https://img.shields.io/github/sponsors/Xe)
- (https://github.com/sponsors/Xe)
+ The built-in policy allows the major search engine crawlers only from
+ their published address ranges and challenges anything else that
+ claims to be a browser.
  .
- Sponsors
- .
- Anubis is brought to you by sponsors and donors like:
- .
- Diamond Tier
- .
- Gold Tier
- .
- Overview
- .
- Anubis is a Web AI Firewall Utility that weighs the soul of your
- connection (https://en.wikipedia.org/wiki/Weighing_of_souls) using one
- or more challenges in order to protect upstream resources from scraper
- bots.
- .
- This program is designed to help protect the small internet from the
- endless storm of requests that flood in from AI companies. Anubis is as
- lightweight as possible to ensure that everyone can afford to protect
- the communities closest to them.
- .
- Anubis is a bit of a nuclear response. This will result in your website
- being blocked from smaller scrapers and may inhibit "good bots" like the
- Internet Archive. You can configure bot policy definitions
- (/docs/docs/admin/policies.mdx) to explicitly allowlist them and we are
- working on a curated set of "known good" bots to allow for a compromise
- between discoverability and uptime.
- .
- In most cases, you should not need this and can probably get by using
- Cloudflare to protect a given origin. However, for circumstances where
- you can't or won't use Cloudflare, Anubis is there for you.
- .
- If you want to try this out, connect to anubis.techaro.lol
- (https://anubis.techaro.lol).
- .
- Support
- .
- If you run into any issues running Anubis, please open an issue
- (https://github.com/TecharoHQ/anubis/issues/new?template=Blank+issue).
- Please include all the information I would need to diagnose your issue.
- .
- For live chat, please join the Patreon (https://patreon.com/cadey) and
- ask in the Patron discord in the channel #anubis.
- .
- Star History
- .
- Packaging Status
- .
- [Image: Packaging status] (https://repology.org/badge/vertical-
- allrepos/anubis-anti-crawler.svg?columns=3)
- (https://repology.org/project/anubis-anti-crawler/versions)
- .
- Contributors
- .
- Made with contrib.rocks (https://contrib.rocks).
+ This package ships the anubis binary, anubis-robots2policy, a systemd
+ template unit anubis@.service (one instance per environment file in
+ /etc/anubis, disabled by default) and the default policy.

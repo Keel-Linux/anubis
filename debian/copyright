@@ -1,14 +1,145 @@
 Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
-Source: https://github.com/techarohq/anubis
+Source: https://github.com/TecharoHQ/anubis
 Upstream-Name: anubis
-Upstream-Contact: TODO
+Upstream-Contact: Xe Iaso <me@xeiaso.net>
+Comment: The source is upstream's anubis-src-vendor tarball, which carries
+ the Go modules under vendor/, plus the npm component under npm/ (the
+ runtime JavaScript dependencies of the challenge pages, from the npm
+ registry). The vendor/ licences below were classified from each module's
+ LICENSE file; many vendored modules are upstream's development tools and
+ are not linked into the binaries.
 
 Files: *
-Copyright: 2025 Techaro
+Copyright: 2025-2026 Xe Iaso <me@xeiaso.net>
+           2025-2026 Techaro
 License: Expat
+
+Files: web/static/img/*
+Copyright: CELPHASE (https://bsky.app/profile/celphase.bsky.social)
+License: Expat
+Comment: See web/static/img/ATTRIBUTIONS.txt.
+
+Files: xess/static/geist.woff2
+Copyright: 2024 Vercel, in collaboration with basement.studio
+License: OFL-1.1
+
+Files: xess/static/podkova.woff2
+       xess/static/podkova.css
+Copyright: 2012 The Podkova Project Authors
+License: OFL-1.1
+
+Files: xess/static/iosevka-curly.woff2
+Copyright: 2015-2026 Renzhi Li (aka. Belleve Invis)
+License: OFL-1.1
+
+Files: npm/preact/*
+Copyright: 2015-present Jason Miller
+License: Expat
+
+Files: npm/@aws-crypto/*
+       npm/@aws-sdk/*
+       npm/@smithy/*
+Copyright: Amazon.com, Inc. or its affiliates
+License: Apache-2.0
+
+Files: npm/tslib/*
+Copyright: Microsoft Corporation
+License: 0BSD
+
+Files: vendor/*
+Copyright: the authors of each module, as stated in its LICENSE file
+License: Expat
+
+Files: vendor/buf.build/gen/go/bufbuild/protovalidate/protocolbuffers/go/*
+       vendor/cel.dev/expr/*
+       vendor/github.com/Masterminds/goutils/*
+       vendor/github.com/aws/*
+       vendor/github.com/containerd/*
+       vendor/github.com/distribution/reference/*
+       vendor/github.com/docker/*
+       vendor/github.com/ebitengine/purego/*
+       vendor/github.com/fahedouch/go-logrotate/*
+       vendor/github.com/go-git/go-billy/v5/*
+       vendor/github.com/go-git/go-git/v5/*
+       vendor/github.com/go-jose/go-jose/v3/*
+       vendor/github.com/go-logr/*
+       vendor/github.com/golang/groupcache/*
+       vendor/github.com/google/cel-go/*
+       vendor/github.com/google/pprof/*
+       vendor/github.com/google/rpmpack/*
+       vendor/github.com/grpc-ecosystem/*
+       vendor/github.com/klauspost/compress/*
+       vendor/github.com/moby/*
+       vendor/github.com/opencontainers/*
+       vendor/github.com/pjbgf/sha1cd/*
+       vendor/github.com/prometheus/*
+       vendor/github.com/skeema/knownhosts/*
+       vendor/github.com/spf13/afero/*
+       vendor/github.com/tklauser/numcpus/*
+       vendor/github.com/xanzy/ssh-agent/*
+       vendor/go.opentelemetry.io/*
+       vendor/go.yaml.in/*
+       vendor/google.golang.org/genproto/*
+       vendor/google.golang.org/grpc/*
+       vendor/gopkg.in/yaml.v3/*
+       vendor/k8s.io/apimachinery/*
+       vendor/sigs.k8s.io/json/*
+Copyright: the authors of each module, as stated in its LICENSE file
+License: Apache-2.0
+
+Files: vendor/github.com/antlr4-go/antlr/v4/*
+       vendor/github.com/cli/browser/*
+       vendor/github.com/cli/safeexec/*
+       vendor/github.com/emirpasic/gods/*
+       vendor/github.com/go-sourcemap/sourcemap/*
+       vendor/github.com/magiconair/properties/*
+       vendor/github.com/pkg/errors/*
+       vendor/github.com/pmezard/go-difflib/*
+       vendor/github.com/redis/go-redis/v9/*
+       vendor/github.com/russross/blackfriday/v2/*
+       vendor/github.com/ulikunitz/xz/*
+       vendor/gopkg.in/warnings.v0/*
+Copyright: the authors of each module, as stated in its LICENSE file
+License: BSD-2-clause
+
+Files: vendor/dario.cat/mergo/*
+       vendor/github.com/ProtonMail/go-crypto/*
+       vendor/github.com/cavaliergopher/cpio/*
+       vendor/github.com/cloudflare/circl/*
+       vendor/github.com/cyphar/filepath-securejoin/*
+       vendor/github.com/facebookgo/flagenv/*
+       vendor/github.com/fsnotify/fsnotify/*
+       vendor/github.com/go-git/gcfg/*
+       vendor/github.com/google/go-github/v70/*
+       vendor/github.com/google/go-querystring/*
+       vendor/github.com/google/uuid/*
+       vendor/github.com/lufia/plan9stats/*
+       vendor/github.com/munnerz/goautoneg/*
+       vendor/github.com/pierrec/lz4/v4/*
+       vendor/github.com/shirou/gopsutil/v4/*
+       vendor/github.com/tklauser/go-sysconf/*
+       vendor/golang.org/x/*
+       vendor/google.golang.org/protobuf/*
+       vendor/mvdan.cc/sh/v3/*
+       vendor/sigs.k8s.io/yaml/*
+Copyright: the authors of each module, as stated in its LICENSE file
+License: BSD-3-clause
+
+Files: vendor/github.com/davecgh/go-spew/*
+Copyright: 2012-2016 Dave Collins <dave@davec.name>
+License: ISC
+
+Files: vendor/github.com/hashicorp/go-version/*
+Copyright: HashiCorp, Inc.
+License: MPL-2.0
+
+Files: vendor/github.com/Xe/erofs/*
+Copyright: Xe Iaso
+License: CC0-1.0
 
 Files: debian/*
 Copyright: 2025 Taavi Väänänen <taavi@debian.org>
+           2026 Marcos Méndez <mendez.foto@gmail.com>
 License: Expat
 Comment: Debian packaging is licensed under the same terms as upstream
 
@@ -30,3 +161,91 @@ License: Expat
  LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
  OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  SOFTWARE.
+
+License: Apache-2.0
+ On Debian systems, the complete text of the Apache License, Version 2.0
+ can be found in "/usr/share/common-licenses/Apache-2.0".
+
+License: MPL-2.0
+ On Debian systems, the complete text of the Mozilla Public License,
+ Version 2.0 can be found in "/usr/share/common-licenses/MPL-2.0".
+
+License: CC0-1.0
+ On Debian systems, the complete text of the CC0 1.0 Universal license
+ can be found in "/usr/share/common-licenses/CC0-1.0".
+
+License: OFL-1.1
+ On Debian systems, the complete text of the SIL Open Font License,
+ Version 1.1 can be found in "/usr/share/common-licenses/OFL-1.1".
+
+License: BSD-2-clause
+ Redistribution and use in source and binary forms, with or without
+ modification, are permitted provided that the following conditions are met:
+ .
+ 1. Redistributions of source code must retain the above copyright notice,
+    this list of conditions and the following disclaimer.
+ 2. Redistributions in binary form must reproduce the above copyright notice,
+    this list of conditions and the following disclaimer in the documentation
+    and/or other materials provided with the distribution.
+ .
+ THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+ AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+ IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+ ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE
+ LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
+ CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+ SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+ INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+ CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+ ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+ POSSIBILITY OF SUCH DAMAGE.
+
+License: BSD-3-clause
+ Redistribution and use in source and binary forms, with or without
+ modification, are permitted provided that the following conditions are met:
+ .
+ 1. Redistributions of source code must retain the above copyright notice,
+    this list of conditions and the following disclaimer.
+ 2. Redistributions in binary form must reproduce the above copyright notice,
+    this list of conditions and the following disclaimer in the documentation
+    and/or other materials provided with the distribution.
+ 3. Neither the name of the copyright holder nor the names of its
+    contributors may be used to endorse or promote products derived from
+    this software without specific prior written permission.
+ .
+ THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+ AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+ IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+ ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE
+ LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
+ CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+ SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+ INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+ CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+ ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+ POSSIBILITY OF SUCH DAMAGE.
+
+License: ISC
+ Permission to use, copy, modify, and/or distribute this software for any
+ purpose with or without fee is hereby granted, provided that the above
+ copyright notice and this permission notice appear in all copies.
+ .
+ THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES
+ WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
+ MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR
+ ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
+ WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
+ ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
+ OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+
+License: 0BSD
+ Permission to use, copy, modify, and/or distribute this software for any
+ purpose with or without fee is hereby granted.
+ .
+ THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES
+ WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
+ MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR
+ ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
+ WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
+ ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
+ OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.

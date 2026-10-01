@@ -1,3 +1,8 @@
+Status in Debian (checked 2026-10-01): ITP #1102132 is owned by Taavi
+Väänänen; the salsa repository go-team/packages/anubis (branch debian/sid
+here) was last touched on 2025-07-11 at 1.21.0~pre1 and does not build.
+Its TODO, as it stood:
+
 go dependencies needs to be packaged:
 * github.com/a-h/templ (Taavi is working on this)
 * github.com/facebookgo/flagenv
@@ -17,3 +22,18 @@ write proper package description
 frontend build process
 
 systemd integration
+
+What the keel/trixie branch answers, and what it does not:
+
+* frontend build process: done with Debian's esbuild alone (no npm,
+  postcss or cssnano), as Jérémy Lal suggested on the ITP. The npm
+  runtime dependencies are an embedded component; for Debian, preact
+  10 (node-preact 10.29 is in forky) and the AWS crypto helpers would be
+  build dependencies instead.
+* xess *.css: built by esbuild into xess/xess.min.css before go build.
+* systemd integration: anubis@.service, disabled, DynamicUser, the key
+  in a root-only file copied into the runtime directory at start.
+* package description: written.
+* go dependencies: NOT done the Debian way. This build uses upstream's
+  vendor/ and golang-1.26-go from trixie-backports; Debian would package
+  the missing modules and build with dh-golang.

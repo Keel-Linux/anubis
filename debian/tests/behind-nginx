@@ -1,0 +1,121 @@
+#!/bin/sh
+# anubis@default behind trixie's nginx: a browser and an unverified
+# Googlebot get the challenge, a verified Googlebot and a plain client
+# reach the backend, the instance listens on the loopback only, runs as
+# a dynamic user, and does not start without its signing key.
+set -eu
+
+FRONT=http://127.0.0.1:8080
+BROWSER='Mozilla/5.0 (X11; Linux x86_64; rv:140.0) Gecko/20100101 Firefox/140.0'
+GOOGLEBOT='Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)'
+# Inside 192.178.4.0/27, one of Googlebot's published ranges in the policy.
+GOOGLE_IP=192.178.4.1
+WORK=$(mktemp -d)
+
+pass() { echo "ok: $*"; }
+fail() { echo "FAIL: $*" >&2; exit 1; }
+
+cleanup() {
+    systemctl stop anubis@default.service 2>/dev/null || true
+    rm -f /etc/anubis/default.key /etc/nginx/sites-enabled/anubis-test
+    rm -rf "$WORK"
+}
+trap cleanup EXIT
+
+# The package enables nothing.
+systemctl is-enabled anubis@default.service >/dev/null 2>&1 \
+    && fail "anubis@default is enabled after install"
+pass "anubis@default is not enabled"
+
+# No key, no start.
+rm -f /etc/anubis/default.key
+if systemctl start anubis@default.service 2>/dev/null; then
+    fail "anubis@default started without /etc/anubis/default.key"
+fi
+pass "anubis@default refuses to start without its key"
+systemctl reset-failed anubis@default.service 2>/dev/null || true
+
+install -m 0600 /dev/null /etc/anubis/default.key
+openssl rand -hex 32 > /etc/anubis/default.key
+
+# Front on 8080 through Anubis; the test sets the client address with a
+# header the front trusts only from the loopback. Backend on 3000.
+cat > /etc/nginx/sites-enabled/anubis-test <<'EOF'
+server {
+    listen 127.0.0.1:8080;
+    set_real_ip_from 127.0.0.1;
+    real_ip_header X-Test-Client;
+    location / {
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_pass http://127.0.0.1:8923;
+    }
+}
+server {
+    listen 127.0.0.1:3000;
+    location / {
+        default_type text/plain;
+        return 200 "backend reached\n";
+    }
+}
+EOF
+nginx -t
+systemctl restart nginx
+
+systemctl start anubis@default.service
+i=0
+until curl -fsS -o /dev/null http://127.0.0.1:9090/healthz 2>/dev/null; do
+    i=$((i + 1))
+    [ "$i" -lt 30 ] || { journalctl -u anubis@default --no-pager | tail -30; fail "anubis did not become healthy"; }
+    sleep 1
+done
+pass "anubis@default is healthy"
+
+journalctl -u anubis@default --no-pager | grep -q 'generating random key' \
+    && fail "anubis used a random key instead of /etc/anubis/default.key"
+
+user=$(ps -o user= -C anubis | head -1 | tr -d ' ')
+[ -n "$user" ] && [ "$user" != root ] || fail "anubis runs as '$user'"
+pass "anubis runs as $user, not root"
+
+listeners=$(ss -Hltnp | grep '"anubis"' | awk '{print $4}')
+echo "$listeners" | sed 's/^/   listens on /'
+echo "$listeners" | grep -qv '^127\.0\.0\.1:' && fail "anubis listens beyond the loopback"
+pass "anubis listens on the loopback only"
+
+get() { # get NAME UA [CLIENT_IP]: body to $WORK/NAME, prints the status
+    # --compressed: Anubis refuses, at random, a challenged client that
+    # does not accept gzip, as no browser does.
+    curl -sS --compressed -o "$WORK/$1" -w '%{http_code}' -A "$2" \
+        ${3:+-H "X-Test-Client: $3"} "$FRONT/some/page"
+}
+
+code=$(get browser "$BROWSER" 203.0.113.10)
+grep -q 'id="anubis_challenge"' "$WORK/browser" \
+    || fail "a browser was not challenged (HTTP $code)"
+grep -q 'backend reached' "$WORK/browser" && fail "a browser reached the backend"
+pass "browser user agent from 203.0.113.10: challenge page (HTTP $code)"
+
+code=$(get bot-unverified "$GOOGLEBOT" 203.0.113.10)
+grep -q 'id="anubis_challenge"' "$WORK/bot-unverified" \
+    || fail "Googlebot from an unverified address was not challenged (HTTP $code)"
+pass "Googlebot user agent from 203.0.113.10: challenge page (HTTP $code)"
+
+code=$(get bot-verified "$GOOGLEBOT" "$GOOGLE_IP")
+grep -q 'backend reached' "$WORK/bot-verified" \
+    || fail "Googlebot from $GOOGLE_IP did not reach the backend (HTTP $code)"
+pass "Googlebot user agent from $GOOGLE_IP: backend reached (HTTP $code)"
+
+code=$(get plain "curl/8.14.1" 203.0.113.10)
+grep -q 'backend reached' "$WORK/plain" \
+    || fail "a non-browser client did not reach the backend (HTTP $code)"
+pass "non-browser user agent: backend reached (HTTP $code)"
+
+# The assets the challenge page loads were built and embedded.
+for path in /.within.website/x/cmd/anubis/static/js/main.mjs \
+            /.within.website/x/xess/xess.min.css; do
+    code=$(curl -sS --compressed -o "$WORK/asset" -w '%{http_code}' -A "$BROWSER" "$FRONT$path")
+    [ "$code" = 200 ] && [ -s "$WORK/asset" ] || fail "$path: HTTP $code"
+    pass "$path served ($(wc -c < "$WORK/asset") bytes)"
+done

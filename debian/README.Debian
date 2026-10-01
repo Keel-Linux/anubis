@@ -1,0 +1,56 @@
+Anubis on Debian (Keel Linux build)
+===================================
+
+Instances
+---------
+
+anubis@.service is a template: anubis@NAME reads its flags from
+/etc/anubis/NAME.env and its signing key from /etc/anubis/NAME.key.
+Nothing is enabled or started by the package. /etc/anubis/default.env is
+an example instance that listens on 127.0.0.1:8923 (metrics on
+127.0.0.1:9090) and forwards to 127.0.0.1:3000.
+
+Anubis belongs behind the web server, never at the edge: keep BIND on the
+loopback (or a unix socket) and let nginx terminate TLS and pass X-Real-IP.
+
+The signing key
+---------------
+
+The key signs the cookie a browser receives after solving the challenge.
+It is the hex-encoded 32-byte ed25519 seed, in a file owned by root with
+mode 0600:
+
+  install -m 0600 /dev/null /etc/anubis/default.key
+  openssl rand -hex 32 > /etc/anubis/default.key
+
+Before each start the unit copies the file, as root, to
+/run/anubis/NAME/signing-key, owned by the instance's dynamic user with
+mode 0400, and points ED25519_PRIVATE_KEY_HEX_FILE at it; the copy goes
+with the runtime directory when the instance stops. The key is never in
+the environment file. Without the file the instance does not start: an instance
+with a random key would make every visitor solve the challenge again after
+each restart, and on a set of nodes after each failover. Every node behind
+the same address must hold the same key.
+
+Policy
+------
+
+/etc/anubis/botPolicies.yaml is upstream's default policy. Search engine
+crawlers (Googlebot, Bingbot, Applebot, DuckDuckBot and others) are
+allowed only from their published address ranges, or by forward-confirmed
+reverse DNS for Yandex; the same user agent from any other address is
+weighed like any browser and challenged. The rules marked "Requires a
+subscription to Thoth" (country and ASN) do nothing without THOTH_URL and
+THOTH_TOKEN.
+
+nginx
+-----
+
+  location / {
+      proxy_set_header Host $host;
+      proxy_set_header X-Real-IP $remote_addr;
+      proxy_set_header X-Forwarded-Proto $scheme;
+      proxy_pass http://127.0.0.1:8923;
+  }
+
+See /usr/share/doc/anubis/nginx.mdx.
