@@ -1,0 +1,119 @@
+# Build, lint and test this package on trixie (handbook decision 0041,
+# first implementation, step 5). The checks are "package / build" and
+# "package / autopkgtest".
+#
+# build: gbp buildpackage in a debian:trixie container with
+# trixie-backports enabled (golang-1.26-go), source and binary. There is no
+# pristine-tar branch (debian/README.source): gbp builds the orig tarball
+# and its npm component from the upstream/<version> tag. lintian then
+# checks the .changes and any error or warning fails the job, as
+# packages/build of Keel-Linux/common does. Nothing is signed or
+# published; the files are kept as the artifact "debs".
+#
+# autopkgtest: debian/tests/behind-nginx drives anubis@.service with
+# systemctl, so it runs in a debian:trixie container booted with systemd
+# under podman on the runner, with autopkgtest's null runner inside it.
+# The container is the isolation that isolation-container asks for, and is
+# thrown away after the test, which is what breaks-testbed asks for.
+#
+# Keel-Linux/.github's reusable build-deb.yml does not fit: it runs on the
+# self-hosted keel-lxc runner, not registered yet, and neither uses gbp nor
+# lints. This workflow follows Keel-Linux/common's packages.yml instead.
+name: package
+
+on:
+  pull_request:
+  push:
+    branches: [keel/trixie]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  DEBIAN_FRONTEND: noninteractive
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    container: debian:trixie
+    timeout-minutes: 45
+    steps:
+      - name: Enable trixie-backports and install the tools
+        run: |
+          echo 'deb http://deb.debian.org/debian trixie-backports main' \
+            > /etc/apt/sources.list.d/trixie-backports.list
+          apt-get update -qq
+          apt-get install -y -qq --no-install-recommends \
+            ca-certificates git git-buildpackage \
+            devscripts equivs lintian
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Track the upstream branch
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          # As gbp clone does: upstream's .gitattributes must not change
+          # what is exported, or the tree no longer matches the orig tarball.
+          gbp setup-gitattributes
+          git branch -f upstream origin/upstream
+      - name: Install the build dependencies
+        run: |
+          cd "$RUNNER_TEMP"
+          mk-build-deps --install --remove \
+            --tool 'apt-get -y -qq --no-install-recommends' \
+            "$GITHUB_WORKSPACE/debian/control"
+      - name: Build
+        run: |
+          gbp buildpackage --git-ignore-branch \
+            --git-export-dir="$RUNNER_TEMP/build-area" \
+            --git-builder='dpkg-buildpackage -us -uc'
+          mkdir dist
+          cp "$RUNNER_TEMP"/build-area/*.deb "$RUNNER_TEMP"/build-area/*.dsc \
+            "$RUNNER_TEMP"/build-area/*.tar.* "$RUNNER_TEMP"/build-area/*.buildinfo \
+            "$RUNNER_TEMP"/build-area/*.changes dist/
+      - name: Lint
+        run: |
+          lintian --fail-on error,warning --info --display-info \
+            dist/*.changes
+      - uses: actions/upload-artifact@v4
+        with:
+          name: debs
+          path: dist/
+          if-no-files-found: error
+
+  autopkgtest:
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: debs
+          path: dist
+      - name: Boot a trixie container with systemd
+        run: |
+          cat > Containerfile <<'EOF'
+          FROM docker.io/library/debian:trixie
+          RUN apt-get update -qq \
+           && DEBIAN_FRONTEND=noninteractive apt-get install -y -qq \
+              --no-install-recommends autopkgtest dpkg-dev systemd \
+              systemd-sysv dbus ca-certificates \
+           && apt-get clean
+          CMD ["/sbin/init"]
+          EOF
+          sudo podman build -q -t testbed -f Containerfile .
+          sudo podman run -d --name testbed --systemd=always --privileged \
+            -v "$PWD/dist:/dist:ro" testbed
+          # The system bus is not up the instant the container starts.
+          for _ in $(seq 60); do
+            state=$(sudo podman exec testbed systemctl is-system-running --wait 2>/dev/null || true)
+            case "$state" in running|degraded) break ;; esac
+            sleep 1
+          done
+          echo "systemd: $state"
+          case "$state" in running|degraded) ;; *) exit 1 ;; esac
+      - name: Run debian/tests
+        run: |
+          sudo podman exec testbed sh -c \
+            'autopkgtest --ignore-restrictions=isolation-container,breaks-testbed /dist/*.dsc /dist/*.deb -- null'

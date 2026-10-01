@@ -9,8 +9,12 @@ debian/sid   the Debian Go team's work-in-progress packaging, as on salsa
 upstream     upstream imports; its history includes upstream's git history
 keel/trixie  this package, built for the Keel repository
 
-The Keel build runs dpkg-buildpackage -b from a clone of keel/trixie, so
-the upstream branch carries everything the build reads.
+The layout is DEP-14's, with the tags upstream/<version> and
+keel/<debian-version>. `gbp buildpackage` builds both orig tarballs from
+the upstream/<version> tag (there is no pristine-tar branch: the npm
+component is assembled, not released), and `dpkg-buildpackage -b` from a
+clone of keel/trixie works too, since the upstream branch carries
+everything the build reads.
 
 Upstream tarball and the npm component
 --------------------------------------
