@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/TecharoHQ/anubis/lib/policy/config"
+	"github.com/TecharoHQ/anubis/lib/config"
 	"github.com/TecharoHQ/anubis/lib/store/memory"
 	"golang.org/x/net/html"
 )
@@ -75,10 +75,10 @@ func TestFetchHTMLDocument(t *testing.T) {
 				if tt.contentLength > 0 {
 					// Simulate content length but avoid sending too much actual data
 					w.Header().Set("Content-Length", fmt.Sprintf("%d", tt.contentLength))
-					io.CopyN(w, strings.NewReader("X"), tt.contentLength)
+					io.CopyN(w, strings.NewReader("X"), tt.contentLength) //nolint:errcheck
 				} else {
 					w.WriteHeader(tt.statusCode)
-					w.Write([]byte(tt.htmlContent))
+					w.Write([]byte(tt.htmlContent)) //nolint:errcheck
 				}
 			}))
 			defer ts.Close()
@@ -87,7 +87,7 @@ func TestFetchHTMLDocument(t *testing.T) {
 				Enabled:      true,
 				TimeToLive:   time.Minute,
 				ConsiderHost: false,
-			}, memory.New(t.Context()))
+			}, memory.New(t.Context()), TargetOptions{})
 			doc, err := cache.fetchHTMLDocument(t.Context(), ts.URL, "anything")
 
 			if tt.expectError {
@@ -118,7 +118,7 @@ func TestFetchHTMLDocumentInvalidURL(t *testing.T) {
 		Enabled:      true,
 		TimeToLive:   time.Minute,
 		ConsiderHost: false,
-	}, memory.New(t.Context()))
+	}, memory.New(t.Context()), TargetOptions{})
 
 	doc, err := cache.fetchHTMLDocument(t.Context(), "http://invalid.url.that.doesnt.exist.example", "anything")
 

@@ -8,7 +8,7 @@ LICENSE='/*
 @licstart  The following is the entire license notice for the
 JavaScript code in this page.
 
-Copyright (c) 2025 Xe Iaso <me@xeiaso.net>
+Copyright (c) 2025 Xe Iaso <xe.iaso@techaro.lol>
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -28,6 +28,9 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 
+Includes code from https://github.com/aws/aws-sdk-js-crypto-helpers which is
+used under the terms of the Apache 2 license.
+
 @licend  The above is the entire license notice
 for the JavaScript code in this page.
 */'
@@ -36,9 +39,25 @@ for the JavaScript code in this page.
 mkdir -p static/locales
 cp ../lib/localization/locales/*.json static/locales/
 
-esbuild js/main.mjs --sourcemap --bundle --minify --outfile=static/js/main.mjs "--banner:js=${LICENSE}"
-gzip -f -k -n static/js/main.mjs
-zstd -f -k --ultra -22 static/js/main.mjs
-brotli -fZk static/js/main.mjs
+shopt -s nullglob globstar
 
-esbuild js/bench.mjs --sourcemap --bundle --minify --outfile=static/js/bench.mjs
+for file in js/**/*.ts js/**/*.mjs; do
+  # js/lib/ holds shared modules (xeact, backoff) that entry points import.
+  # esbuild inlines them into each bundle that imports them, so building them
+  # standalone only emits dead code that then gets embedded into the binary.
+  if [[ "$file" == js/lib/* ]]; then
+    continue
+  fi
+
+  out="static/${file}"
+  if [[ "$file" == *.ts ]]; then
+    out="static/${file%.ts}.mjs"
+  fi
+
+  mkdir -p "$(dirname "$out")"
+
+  esbuild "$file" --sourcemap --bundle --minify --target=chrome66 --outfile="$out" --banner:js="$LICENSE"
+  gzip -f -k -n "$out"
+  zstd -f -k --ultra -22 "$out"
+  brotli -fZk "$out"
+done

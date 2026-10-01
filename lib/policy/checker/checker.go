@@ -14,20 +14,34 @@ type Impl interface {
 	Hash() string
 }
 
+type Func func(*http.Request) (bool, error)
+
+func (f Func) Check(r *http.Request) (bool, error) {
+	return f(r)
+}
+
+func (f Func) Hash() string { return internal.FastHash(fmt.Sprintf("%#v", f)) }
+
 type List []Impl
 
+// Check runs each checker in the list against the request.
+// It returns true only if *all* checkers return true (AND semantics).
+// If any checker returns an error, the function returns false and the error.
 func (l List) Check(r *http.Request) (bool, error) {
 	for _, c := range l {
 		ok, err := c.Check(r)
 		if err != nil {
-			return ok, err
+			// Propagate the error; overall result is false.
+			return false, err
 		}
-		if ok {
-			return ok, nil
+		if !ok {
+			// One false means the combined result is false. Short-circuit
+			// so we don't waste time.
+			return false, err
 		}
 	}
-
-	return false, nil
+	// Assume success until a checker says otherwise.
+	return true, nil
 }
 
 func (l List) Hash() string {

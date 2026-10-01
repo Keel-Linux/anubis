@@ -1,4 +1,0 @@
-bots:
-  - name: weight
-    action: WEIGH
-    user_agent_regex: Mozilla

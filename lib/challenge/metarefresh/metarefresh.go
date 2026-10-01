@@ -5,11 +5,11 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"time"
 
 	"github.com/TecharoHQ/anubis"
 	"github.com/TecharoHQ/anubis/lib/challenge"
 	"github.com/TecharoHQ/anubis/lib/localization"
-	"github.com/TecharoHQ/anubis/web"
 	"github.com/a-h/templ"
 )
 
@@ -23,7 +23,11 @@ type Impl struct{}
 
 func (i *Impl) Setup(mux *http.ServeMux) {}
 
-func (i *Impl) Issue(r *http.Request, lg *slog.Logger, in *challenge.IssueInput) (templ.Component, error) {
+func (i *Impl) Issue(w http.ResponseWriter, r *http.Request, lg *slog.Logger, in *challenge.IssueInput) (templ.Component, error) {
+	if err := in.Valid(); err != nil {
+		return nil, err
+	}
+
 	u, err := r.URL.Parse(anubis.BasePrefix + "/.within.website/x/cmd/anubis/api/pass-challenge")
 	if err != nil {
 		return nil, fmt.Errorf("can't render page: %w", err)
@@ -32,19 +36,33 @@ func (i *Impl) Issue(r *http.Request, lg *slog.Logger, in *challenge.IssueInput)
 	q := u.Query()
 	q.Set("redir", r.URL.String())
 	q.Set("challenge", in.Challenge.RandomData)
+	q.Set("id", in.Challenge.ID)
 	u.RawQuery = q.Encode()
 
-	loc := localization.GetLocalizer(r)
-	component, err := web.BaseWithChallengeAndOGTags(loc.T("making_sure_not_bot"), page(u.String(), in.Rule.Challenge.Difficulty, loc), in.Impressum, in.Challenge.RandomData, in.Rule.Challenge, in.OGTags, loc)
+	showMeta := in.Challenge.RandomData[0]%2 == 0
 
-	if err != nil {
-		return nil, fmt.Errorf("can't render page: %w", err)
+	if !showMeta {
+		w.Header().Add("Refresh", fmt.Sprintf("%d; url=%s", in.Rule.Challenge.Difficulty+1, u.String()))
 	}
 
-	return component, nil
+	loc := localization.GetLocalizer(r)
+
+	result := page(u.String(), in.Rule.Challenge.Difficulty, showMeta, loc)
+
+	return result, nil
 }
 
 func (i *Impl) Validate(r *http.Request, lg *slog.Logger, in *challenge.ValidateInput) error {
+	if err := in.Valid(); err != nil {
+		return challenge.NewError("validate", "invalid input", err)
+	}
+
+	wantTime := in.Challenge.IssuedAt.Add(time.Duration(in.Rule.Challenge.Difficulty) * 800 * time.Millisecond)
+
+	if time.Now().Before(wantTime) {
+		return challenge.NewError("validate", "insufficient time", fmt.Errorf("%w: wanted user to wait until at least %s", challenge.ErrFailed, wantTime.Format(time.RFC3339)))
+	}
+
 	gotChallenge := r.FormValue("challenge")
 
 	if subtle.ConstantTimeCompare([]byte(in.Challenge.RandomData), []byte(gotChallenge)) != 1 {

@@ -10,8 +10,8 @@ import (
 )
 
 type loadAvg struct {
-	lock sync.RWMutex
 	data *load.AvgStat
+	lock sync.RWMutex
 }
 
 func (l *loadAvg) updateThread(ctx context.Context) {
@@ -46,7 +46,7 @@ var (
 )
 
 func init() {
-	globalLoadAvg = &loadAvg{}
+	globalLoadAvg = &loadAvg{data: &load.AvgStat{}}
 	go globalLoadAvg.updateThread(context.Background())
 }
 

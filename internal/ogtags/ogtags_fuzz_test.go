@@ -3,11 +3,12 @@ package ogtags
 import (
 	"context"
 	"net/url"
+	"slices"
 	"strings"
 	"testing"
 	"unicode/utf8"
 
-	"github.com/TecharoHQ/anubis/lib/policy/config"
+	"github.com/TecharoHQ/anubis/lib/config"
 	"github.com/TecharoHQ/anubis/lib/store/memory"
 	"golang.org/x/net/html"
 )
@@ -48,7 +49,7 @@ func FuzzGetTarget(f *testing.F) {
 		}
 
 		// Create cache - should not panic
-		cache := NewOGTagCache(target, config.OpenGraph{}, memory.New(context.Background()))
+		cache := NewOGTagCache(target, config.OpenGraph{}, memory.New(context.Background()), TargetOptions{})
 
 		// Create URL
 		u := &url.URL{
@@ -78,7 +79,7 @@ func FuzzGetTarget(f *testing.F) {
 		}
 
 		// Ensure no memory corruption by calling multiple times
-		for i := 0; i < 3; i++ {
+		for range 3 {
 			result2 := cache.getTarget(u)
 			if result != result2 {
 				t.Errorf("getTarget not deterministic: %q != %q", result, result2)
@@ -132,7 +133,7 @@ func FuzzExtractOGTags(f *testing.F) {
 			return
 		}
 
-		cache := NewOGTagCache("http://example.com", config.OpenGraph{}, memory.New(context.Background()))
+		cache := NewOGTagCache("http://example.com", config.OpenGraph{}, memory.New(context.Background()), TargetOptions{})
 
 		// Should not panic
 		tags := cache.extractOGTags(doc)
@@ -148,11 +149,8 @@ func FuzzExtractOGTags(f *testing.F) {
 				}
 			}
 			if !approved {
-				for _, tag := range cache.approvedTags {
-					if property == tag {
-						approved = true
-						break
-					}
+				if slices.Contains(cache.approvedTags, property) {
+					approved = true
 				}
 			}
 			if !approved {
@@ -188,7 +186,7 @@ func FuzzGetTargetRoundTrip(f *testing.F) {
 			t.Skip()
 		}
 
-		cache := NewOGTagCache(target, config.OpenGraph{}, memory.New(context.Background()))
+		cache := NewOGTagCache(target, config.OpenGraph{}, memory.New(context.Background()), TargetOptions{})
 		u := &url.URL{Path: path, RawQuery: query}
 
 		result := cache.getTarget(u)
@@ -245,7 +243,7 @@ func FuzzExtractMetaTagInfo(f *testing.F) {
 			},
 		}
 
-		cache := NewOGTagCache("http://example.com", config.OpenGraph{}, memory.New(context.Background()))
+		cache := NewOGTagCache("http://example.com", config.OpenGraph{}, memory.New(context.Background()), TargetOptions{})
 
 		// Should not panic
 		property, content := cache.extractMetaTagInfo(node)
@@ -260,11 +258,8 @@ func FuzzExtractMetaTagInfo(f *testing.F) {
 				}
 			}
 			if !approved {
-				for _, tag := range cache.approvedTags {
-					if property == tag {
-						approved = true
-						break
-					}
+				if slices.Contains(cache.approvedTags, property) {
+					approved = true
 				}
 			}
 			if !approved {
@@ -298,7 +293,7 @@ func BenchmarkFuzzedGetTarget(b *testing.B) {
 
 	for _, input := range inputs {
 		b.Run(input.name, func(b *testing.B) {
-			cache := NewOGTagCache(input.target, config.OpenGraph{}, memory.New(context.Background()))
+			cache := NewOGTagCache(input.target, config.OpenGraph{}, memory.New(context.Background()), TargetOptions{})
 			u := &url.URL{Path: input.path, RawQuery: input.query}
 
 			b.ResetTimer()

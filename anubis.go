@@ -1,17 +1,32 @@
 // Package anubis contains the version number of Anubis.
 package anubis
 
-import "time"
+import (
+	"runtime/debug"
+	"time"
+)
+
+func init() {
+	bi, ok := debug.ReadBuildInfo()
+	if !ok {
+		return
+	}
+
+	// XXX(Xe): many things in this repo assume that the development version
+	// of anubis is `devel` and ReadBuildInfo returns `(devel)`. Shim the gap.
+	if bi.Main.Version != "(devel)" {
+		Version = bi.Main.Version
+	}
+}
 
 // Version is the current version of Anubis.
 //
-// This variable is set at build time using the -X linker flag. If not set,
-// it defaults to "devel".
+// This is set from the Go module runtime version.
 var Version = "devel"
 
 // CookieName is the name of the cookie that Anubis uses in order to validate
 // access.
-var CookieName = "techaro.lol-anubis-auth"
+var CookieName = "techaro.lol-anubis"
 
 // TestCookieName is the name of the cookie that Anubis uses in order to check
 // if cookies are enabled on the client's browser.
@@ -22,6 +37,9 @@ const CookieDefaultExpirationTime = 7 * 24 * time.Hour
 
 // BasePrefix is a global prefix for all Anubis endpoints. Can be emptied to remove the prefix entirely.
 var BasePrefix = ""
+
+// PublicUrl is the externally accessible URL for this Anubis instance.
+var PublicUrl = ""
 
 // StaticPath is the location where all static Anubis assets are located.
 const StaticPath = "/.within.website/x/cmd/anubis/"
@@ -36,3 +54,6 @@ const DefaultDifficulty = 4
 // ForcedLanguage is the language being used instead of the one of the request's Accept-Language header
 // if being set.
 var ForcedLanguage = ""
+
+// UseSimplifiedExplanation can be set to true for using the simplified explanation
+var UseSimplifiedExplanation = false

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/netip"
+	"net/url"
 	"regexp"
 	"strings"
 
@@ -51,6 +52,11 @@ func (rac *RemoteAddrChecker) Check(r *http.Request) (bool, error) {
 		return false, fmt.Errorf("%w: %s is not an IP address: %w", ErrMisconfiguration, host, err)
 	}
 
+	// Convert IPv4-mapped IPv6 addresses to IPv4
+	if addr.Is6() && addr.Is4In6() {
+		addr = addr.Unmap()
+	}
+
 	return rac.prefixTable.Contains(addr), nil
 }
 
@@ -89,19 +95,35 @@ func (hmc *HeaderMatchesChecker) Hash() string {
 }
 
 type PathChecker struct {
-	regexp *regexp.Regexp
-	hash   string
+	regexp         *regexp.Regexp
+	hash           string
+	subRequestMode bool
 }
 
-func NewPathChecker(rexStr string) (checker.Impl, error) {
+func NewPathChecker(rexStr string, subrequestMode bool) (checker.Impl, error) {
 	rex, err := regexp.Compile(strings.TrimSpace(rexStr))
 	if err != nil {
 		return nil, fmt.Errorf("%w: regex %s failed parse: %w", ErrMisconfiguration, rexStr, err)
 	}
-	return &PathChecker{rex, internal.FastHash(rexStr)}, nil
+	return &PathChecker{rex, internal.FastHash(rexStr), subrequestMode}, nil
 }
 
 func (pc *PathChecker) Check(r *http.Request) (bool, error) {
+	if pc.subRequestMode {
+		originalUrl := r.Header.Get("X-Original-Uri")
+		if originalUrl == "" {
+			originalUrl = r.Header.Get("X-Forwarded-Uri")
+		}
+		if originalUrl != "" {
+			if parsed, err := url.ParseRequestURI(originalUrl); err == nil {
+				originalUrl = parsed.Path
+			}
+			if pc.regexp.MatchString(originalUrl) {
+				return true, nil
+			}
+		}
+	}
+
 	if pc.regexp.MatchString(r.URL.Path) {
 		return true, nil
 	}

@@ -16,36 +16,47 @@ import (
 	"github.com/TecharoHQ/anubis"
 	"github.com/TecharoHQ/anubis/data"
 	"github.com/TecharoHQ/anubis/internal"
+	"github.com/TecharoHQ/anubis/internal/honeypot/naive"
 	"github.com/TecharoHQ/anubis/internal/ogtags"
 	"github.com/TecharoHQ/anubis/lib/challenge"
+	"github.com/TecharoHQ/anubis/lib/config"
 	"github.com/TecharoHQ/anubis/lib/localization"
 	"github.com/TecharoHQ/anubis/lib/policy"
-	"github.com/TecharoHQ/anubis/lib/policy/config"
 	"github.com/TecharoHQ/anubis/web"
 	"github.com/TecharoHQ/anubis/xess"
 	"github.com/a-h/templ"
 )
 
 type Options struct {
-	Next                http.Handler
-	Policy              *policy.ParsedConfig
-	Target              string
-	CookieDynamicDomain bool
-	CookieDomain        string
-	CookieExpiration    time.Duration
-	CookiePartitioned   bool
-	BasePrefix          string
-	WebmasterEmail      string
-	RedirectDomains     []string
-	ED25519PrivateKey   ed25519.PrivateKey
-	HS512Secret         []byte
-	StripBasePrefix     bool
-	OpenGraph           config.OpenGraph
-	ServeRobotsTXT      bool
-	CookieSecure        bool
+	Next                     http.Handler
+	Policy                   *policy.ParsedConfig
+	Target                   string
+	TargetHost               string
+	TargetSNI                string
+	TargetInsecureSkipVerify bool
+	CookieDynamicDomain      bool
+	CookieDomain             string
+	CookieExpiration         time.Duration
+	CookiePartitioned        bool
+	BasePrefix               string
+	WebmasterEmail           string
+	RedirectDomains          []string
+	ED25519PrivateKey        ed25519.PrivateKey
+	HS512Secret              []byte
+	StripBasePrefix          bool
+	OpenGraph                config.OpenGraph
+	ServeRobotsTXT           bool
+	CookieSecure             bool
+	CookieHttpOnly           bool
+	CookieSameSite           http.SameSite
+	Logger                   *slog.Logger
+	LogLevel                 string
+	PublicUrl                string
+	JWTRestrictionHeader     string
+	DifficultyInJWT          bool
 }
 
-func LoadPoliciesOrDefault(ctx context.Context, fname string, defaultDifficulty int) (*policy.ParsedConfig, error) {
+func LoadPoliciesOrDefault(ctx context.Context, fname string, defaultDifficulty int, logLevel string, subrequestMode bool) (*policy.ParsedConfig, error) {
 	var fin io.ReadCloser
 	var err error
 
@@ -65,11 +76,11 @@ func LoadPoliciesOrDefault(ctx context.Context, fname string, defaultDifficulty 
 	defer func(fin io.ReadCloser) {
 		err := fin.Close()
 		if err != nil {
-			slog.Error("failed to close policy file", "file", fname, "err", err)
+			slog.ErrorContext(ctx, "failed to close policy file", "file", fname, "err", err)
 		}
 	}(fin)
 
-	anubisPolicy, err := policy.ParseConfig(ctx, fin, fname, defaultDifficulty)
+	anubisPolicy, err := policy.ParseConfig(ctx, fin, fname, defaultDifficulty, logLevel, subrequestMode)
 	if err != nil {
 		return nil, fmt.Errorf("can't parse policy file %s: %w", fname, err)
 	}
@@ -89,8 +100,12 @@ func LoadPoliciesOrDefault(ctx context.Context, fname string, defaultDifficulty 
 }
 
 func New(opts Options) (*Server, error) {
+	if opts.Logger == nil {
+		opts.Logger = slog.With("subsystem", "anubis")
+	}
+
 	if opts.ED25519PrivateKey == nil && opts.HS512Secret == nil {
-		slog.Debug("opts.PrivateKey not set, generating a new one")
+		opts.Logger.Debug("opts.PrivateKey not set, generating a new one")
 		_, priv, err := ed25519.GenerateKey(rand.Reader)
 		if err != nil {
 			return nil, fmt.Errorf("lib: can't generate private key: %v", err)
@@ -98,7 +113,8 @@ func New(opts Options) (*Server, error) {
 		opts.ED25519PrivateKey = priv
 	}
 
-	anubis.BasePrefix = opts.BasePrefix
+	anubis.BasePrefix = strings.TrimRight(opts.BasePrefix, "/")
+	anubis.PublicUrl = opts.PublicUrl
 
 	result := &Server{
 		next:        opts.Next,
@@ -106,8 +122,13 @@ func New(opts Options) (*Server, error) {
 		hs512Secret: opts.HS512Secret,
 		policy:      opts.Policy,
 		opts:        opts,
-		OGTags:      ogtags.NewOGTagCache(opts.Target, opts.Policy.OpenGraph, opts.Policy.Store),
-		store:       opts.Policy.Store,
+		OGTags: ogtags.NewOGTagCache(opts.Target, opts.Policy.OpenGraph, opts.Policy.Store, ogtags.TargetOptions{
+			Host:               opts.TargetHost,
+			SNI:                opts.TargetSNI,
+			InsecureSkipVerify: opts.TargetInsecureSkipVerify,
+		}),
+		store:  opts.Policy.Store,
+		logger: opts.Logger,
 	}
 
 	mux := http.NewServeMux()
@@ -147,7 +168,7 @@ func New(opts Options) (*Server, error) {
 	if opts.Policy.Impressum != nil {
 		registerWithPrefix(anubis.APIPrefix+"imprint", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			templ.Handler(
-				web.Base(opts.Policy.Impressum.Page.Title, opts.Policy.Impressum.Page, opts.Policy.Impressum, localization.GetLocalizer(r)),
+				web.Base(opts.Policy.Impressum.Page.Title, opts.Policy.Impressum.Page, opts.Policy.Impressum, opts.Policy.Honeypot, localization.GetLocalizer(r)),
 			).ServeHTTP(w, r)
 		}), "GET")
 	}
@@ -155,6 +176,27 @@ func New(opts Options) (*Server, error) {
 	registerWithPrefix(anubis.APIPrefix+"pass-challenge", http.HandlerFunc(result.PassChallenge), "GET")
 	registerWithPrefix(anubis.APIPrefix+"check", http.HandlerFunc(result.maybeReverseProxyHttpStatusOnly), "")
 	registerWithPrefix("/", http.HandlerFunc(result.maybeReverseProxyOrPage), "")
+
+	if opts.Policy.Honeypot != nil && opts.Policy.Honeypot.Enabled {
+		mazeGen, err := naive.New(opts.Policy.Honeypot, result.store, result.logger)
+		if err == nil {
+			registerWithPrefix(anubis.APIPrefix+"honeypot/{id}/{stage}", mazeGen, http.MethodGet)
+
+			opts.Policy.Bots = append(
+				opts.Policy.Bots,
+				policy.Bot{
+					Rules:  mazeGen.CheckNetwork(),
+					Action: config.RuleWeigh,
+					Weight: &config.Weight{
+						Adjust: 30,
+					},
+					Name: "honeypot/network",
+				},
+			)
+		} else {
+			result.logger.Error("can't init honeypot subsystem", "err", err)
+		}
+	}
 
 	//goland:noinspection GoBoolExpressions
 	if anubis.Version == "devel" {

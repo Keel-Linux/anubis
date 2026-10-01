@@ -6,39 +6,65 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"os"
+	"strings"
 	"sync/atomic"
 
-	"github.com/TecharoHQ/anubis/internal/thoth"
+	"github.com/TecharoHQ/anubis/internal"
+	"github.com/TecharoHQ/anubis/internal/dns"
+	"github.com/TecharoHQ/anubis/lib/config"
 	"github.com/TecharoHQ/anubis/lib/policy/checker"
-	"github.com/TecharoHQ/anubis/lib/policy/config"
 	"github.com/TecharoHQ/anubis/lib/store"
+	"github.com/TecharoHQ/anubis/lib/thoth"
+	"github.com/fahedouch/go-logrotate"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
 
 	_ "github.com/TecharoHQ/anubis/lib/store/all"
 )
 
+// LogRotateTimeFormat is the timestamp a rotated log file is named after.
+//
+// It is RFC 3339 with the colons taken out. Windows reads a colon in a path
+// as the separator before an alternate data stream, so a name containing one
+// cannot be created: rotation would fail with ERROR_INVALID_NAME every time,
+// and because the rotating logger has already closed the file by then, every
+// subsequent line would cost another close, open and doomed rename while the
+// log grew past its limit without bound.
+//
+// The other characters Windows forbids in a name are < > " / \ | ? *, none of
+// which a time format produces. A rotated log file is a backup rather than an
+// interchange format, so nothing parses this.
+const LogRotateTimeFormat = "2006-01-02T15-04-05Z0700"
+
 var (
 	Applications = promauto.NewCounterVec(prometheus.CounterOpts{
 		Name: "anubis_policy_results",
 		Help: "The results of each policy rule",
-	}, []string{"rule", "action"})
+	}, []string{"rule", "action", "asn", "asn_description"})
 
 	ErrChallengeRuleHasWrongAlgorithm = errors.New("config.Bot.ChallengeRules: algorithm is invalid")
 	warnedAboutThresholds             = &atomic.Bool{}
 )
 
 type ParsedConfig struct {
-	orig *config.Config
-
+	Store             store.Interface
+	orig              *config.Config
+	Impressum         *config.Impressum
+	Honeypot          *config.Honeypot
+	OpenGraph         config.OpenGraph
 	Bots              []Bot
 	Thresholds        []*Threshold
-	DNSBL             bool
-	Impressum         *config.Impressum
-	OpenGraph         config.OpenGraph
-	DefaultDifficulty int
 	StatusCodes       config.StatusCodes
-	Store             store.Interface
+	DefaultDifficulty int
+	DNSBL             bool
+	DnsCache          *dns.DnsCache
+	Dns               *dns.Dns
+	Logger            *slog.Logger
+	Metrics           *config.Metrics
+	ThothClient       *thoth.Client
+	LogASN            bool
+	NeedJA4H          bool
 }
 
 func newParsedConfig(orig *config.Config) *ParsedConfig {
@@ -46,10 +72,11 @@ func newParsedConfig(orig *config.Config) *ParsedConfig {
 		orig:        orig,
 		OpenGraph:   orig.OpenGraph,
 		StatusCodes: orig.StatusCodes,
+		Metrics:     orig.Metrics,
 	}
 }
 
-func ParseConfig(ctx context.Context, fin io.Reader, fname string, defaultDifficulty int) (*ParsedConfig, error) {
+func ParseConfig(ctx context.Context, fin io.Reader, fname string, defaultDifficulty int, logLevel string, subrequestMode bool) (*ParsedConfig, error) {
 	c, err := config.Load(fin, fname)
 	if err != nil {
 		return nil, err
@@ -61,6 +88,53 @@ func ParseConfig(ctx context.Context, fin io.Reader, fname string, defaultDiffic
 
 	result := newParsedConfig(c)
 	result.DefaultDifficulty = defaultDifficulty
+	result.LogASN = c.Logging.LogASN
+	if hasThothClient {
+		result.ThothClient = tc
+	}
+
+	if c.Logging.Level != nil {
+		logLevel = c.Logging.Level.String()
+	}
+
+	switch c.Logging.Sink {
+	case config.LogSinkStdio:
+		result.Logger = internal.InitSlog(logLevel, os.Stderr)
+	case config.LogSinkFile:
+		out := &logrotate.Logger{
+			Filename:           c.Logging.Parameters.Filename,
+			FilenameTimeFormat: LogRotateTimeFormat,
+			MaxBytes:           c.Logging.Parameters.MaxBytes,
+			MaxAge:             c.Logging.Parameters.MaxAge,
+			MaxBackups:         c.Logging.Parameters.MaxBackups,
+			LocalTime:          c.Logging.Parameters.UseLocalTime,
+			Compress:           c.Logging.Parameters.Compress,
+		}
+
+		result.Logger = internal.InitSlog(logLevel, out)
+	}
+
+	lg := result.Logger.With("at", "config-validate")
+
+	if result.LogASN && !hasThothClient {
+		lg.WarnContext(ctx, "logging.asn is enabled but no Thoth client is configured; ASN logging and metrics will be skipped. Please read https://anubis.techaro.lol/docs/admin/thoth for more information")
+	}
+
+	stFac, ok := store.Get(c.Store.Backend)
+	switch ok {
+	case true:
+		store, err := stFac.Build(ctx, c.Store.Parameters)
+		if err != nil {
+			validationErrs = append(validationErrs, err)
+		} else {
+			result.Store = store
+		}
+	case false:
+		validationErrs = append(validationErrs, config.ErrUnknownStoreBackend)
+	}
+
+	result.DnsCache = dns.NewDNSCache(result.orig.DNSTTL.Forward, result.orig.DNSTTL.Reverse, result.Store)
+	result.Dns = dns.New(ctx, result.DnsCache)
 
 	for _, b := range c.Bots {
 		if berr := b.Valid(); berr != nil {
@@ -94,7 +168,7 @@ func ParseConfig(ctx context.Context, fin io.Reader, fname string, defaultDiffic
 		}
 
 		if b.PathRegex != nil {
-			c, err := NewPathChecker(*b.PathRegex)
+			c, err := NewPathChecker(*b.PathRegex, subrequestMode)
 			if err != nil {
 				validationErrs = append(validationErrs, fmt.Errorf("while processing rule %s path regex: %w", b.Name, err))
 			} else {
@@ -112,7 +186,7 @@ func ParseConfig(ctx context.Context, fin io.Reader, fname string, defaultDiffic
 		}
 
 		if b.Expression != nil {
-			c, err := NewCELChecker(b.Expression)
+			c, err := NewCELChecker(b.Expression, result.Dns, subrequestMode)
 			if err != nil {
 				validationErrs = append(validationErrs, fmt.Errorf("while processing rule %s expressions: %w", b.Name, err))
 			} else {
@@ -122,7 +196,7 @@ func ParseConfig(ctx context.Context, fin io.Reader, fname string, defaultDiffic
 
 		if b.ASNs != nil {
 			if !hasThothClient {
-				slog.Warn("You have specified a Thoth specific check but you have no Thoth client configured. Please read https://anubis.techaro.lol/docs/admin/thoth for more information", "check", "asn", "settings", b.ASNs)
+				lg.WarnContext(ctx, "You have specified a Thoth specific check but you have no Thoth client configured. Please read https://anubis.techaro.lol/docs/admin/thoth for more information", "check", "asn", "settings", b.ASNs)
 				continue
 			}
 
@@ -131,7 +205,7 @@ func ParseConfig(ctx context.Context, fin io.Reader, fname string, defaultDiffic
 
 		if b.GeoIP != nil {
 			if !hasThothClient {
-				slog.Warn("You have specified a Thoth specific check but you have no Thoth client configured. Please read https://anubis.techaro.lol/docs/admin/thoth for more information", "check", "geoip", "settings", b.GeoIP)
+				lg.WarnContext(ctx, "You have specified a Thoth specific check but you have no Thoth client configured. Please read https://anubis.techaro.lol/docs/admin/thoth for more information", "check", "geoip", "settings", b.GeoIP)
 				continue
 			}
 
@@ -141,13 +215,16 @@ func ParseConfig(ctx context.Context, fin io.Reader, fname string, defaultDiffic
 		if b.Challenge == nil {
 			parsedBot.Challenge = &config.ChallengeRules{
 				Difficulty: defaultDifficulty,
-				ReportAs:   defaultDifficulty,
 				Algorithm:  "fast",
 			}
 		} else {
 			parsedBot.Challenge = b.Challenge
 			if parsedBot.Challenge.Algorithm == "" {
 				parsedBot.Challenge.Algorithm = config.DefaultAlgorithm
+			}
+
+			if parsedBot.Challenge.Algorithm == "slow" {
+				lg.WarnContext(ctx, "use of deprecated algorithm \"slow\" detected, please update this to \"fast\" when possible", "name", parsedBot.Name)
 			}
 		}
 
@@ -156,21 +233,30 @@ func ParseConfig(ctx context.Context, fin io.Reader, fname string, defaultDiffic
 		}
 
 		result.Impressum = c.Impressum
+		result.Honeypot = c.Honeypot
 
 		parsedBot.Rules = cl
+		parsedBot.hash = parsedBot.Hash()
 
 		result.Bots = append(result.Bots, parsedBot)
 	}
 
 	for _, t := range c.Thresholds {
+		if t.Challenge != nil && t.Challenge.Algorithm == "slow" {
+			lg.WarnContext(ctx, "use of deprecated algorithm \"slow\" detected, please update this to \"fast\" when possible", "name", t.Name)
+		}
+
+		if t.Challenge != nil && t.Challenge.ReportAs != 0 {
+			lg.WarnContext(ctx, "use of deprecated report_as setting detected, please remove this from your policy file when possible", "name", t.Name)
+		}
+
 		if t.Name == "legacy-anubis-behaviour" && t.Expression.String() == "true" {
 			if !warnedAboutThresholds.Load() {
-				slog.Warn("configuration file does not contain thresholds, see docs for details on how to upgrade", "fname", fname, "docs_url", "https://anubis.techaro.lol/docs/admin/configuration/thresholds/")
+				lg.WarnContext(ctx, "configuration file does not contain thresholds, see docs for details on how to upgrade", "fname", fname, "docs_url", "https://anubis.techaro.lol/docs/admin/configuration/thresholds/")
 				warnedAboutThresholds.Store(true)
 			}
 
 			t.Challenge.Difficulty = defaultDifficulty
-			t.Challenge.ReportAs = defaultDifficulty
 		}
 
 		threshold, err := ParsedThresholdFromConfig(t)
@@ -182,24 +268,36 @@ func ParseConfig(ctx context.Context, fin io.Reader, fname string, defaultDiffic
 		result.Thresholds = append(result.Thresholds, threshold)
 	}
 
-	stFac, ok := store.Get(c.Store.Backend)
-	switch ok {
-	case true:
-		store, err := stFac.Build(ctx, c.Store.Parameters)
-		if err != nil {
-			validationErrs = append(validationErrs, err)
-		} else {
-			result.Store = store
-		}
-	case false:
-		validationErrs = append(validationErrs, config.ErrUnknownStoreBackend)
-	}
-
 	if len(validationErrs) > 0 {
 		return nil, fmt.Errorf("errors validating policy config JSON %s: %w", fname, errors.Join(validationErrs...))
 	}
 
 	result.DNSBL = c.DNSBL
+	result.NeedJA4H = configReferencesJA4H(c.Bots)
 
 	return result, nil
+}
+
+// configReferencesJA4H reports whether any bot rule references the JA4H
+// fingerprint header, either through a headers_regex key or a CEL expression.
+// Computing the JA4H fingerprint for every request is relatively expensive, so
+// when no rule needs it the middleware that adds the header can be skipped
+// entirely. Threshold expressions can't access request headers, so only bot
+// rules are considered.
+func configReferencesJA4H(bots []config.BotConfig) bool {
+	needle := strings.ToLower(internal.JA4HHeaderName)
+
+	for _, b := range bots {
+		for key := range b.HeadersRegex {
+			if strings.EqualFold(key, internal.JA4HHeaderName) {
+				return true
+			}
+		}
+
+		if b.Expression != nil && strings.Contains(strings.ToLower(b.Expression.String()), needle) {
+			return true
+		}
+	}
+
+	return false
 }

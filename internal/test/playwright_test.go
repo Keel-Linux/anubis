@@ -7,7 +7,7 @@
 // Anubis must be configured to redirect to the server started by the test suite.
 // The bind address and the Anubis server can be specified using the flags `-bind` and `-anubis` respectively.
 //
-// Playwright must be started in server mode using `npx playwright@1.50.1 run-server --port 3000`.
+// Playwright must be started in server mode using `npx playwright@1.61.1 run-server --port 9001`.
 // The version must match the minor used by the playwright-go package.
 //
 // On unsupported systems you may be able to use a container instead: https://playwright.dev/docs/docker#remote-connection
@@ -25,12 +25,13 @@ import (
 	"os"
 	"os/exec"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/TecharoHQ/anubis"
 	libanubis "github.com/TecharoHQ/anubis/lib"
-	"github.com/playwright-community/playwright-go"
+	"github.com/mxschmitt/playwright-go"
 )
 
 var (
@@ -99,7 +100,7 @@ const (
 	actionChallenge action = "CHALLENGE"
 
 	placeholderIP     = "fd11:5ee:bad:c0de::"
-	playwrightVersion = "1.52.0"
+	playwrightVersion = "1.61.1"
 )
 
 type action string
@@ -171,7 +172,8 @@ func daemonize(t *testing.T, command string) {
 func startPlaywright(t *testing.T) {
 	t.Helper()
 
-	if *playwrightRunner == "npx" {
+	switch *playwrightRunner {
+	case "npx":
 		doesCommandExist(t, "npx")
 
 		if os.Getenv("CI") == "true" {
@@ -181,7 +183,7 @@ func startPlaywright(t *testing.T) {
 		}
 
 		daemonize(t, fmt.Sprintf("npx --yes playwright@%s run-server --port %d", playwrightVersion, *playwrightPort))
-	} else if *playwrightRunner == "docker" || *playwrightRunner == "podman" {
+	case "docker", "podman":
 		doesCommandExist(t, *playwrightRunner)
 
 		// docs: https://playwright.dev/docs/docker
@@ -190,9 +192,9 @@ func startPlaywright(t *testing.T) {
 		t.Cleanup(func() {
 			run(t, fmt.Sprintf("%s rm --force %s", *playwrightRunner, container))
 		})
-	} else if *playwrightRunner == "none" {
+	case "none":
 		t.Log("not starting Playwright, assuming it is already running")
-	} else {
+	default:
 		t.Skipf("unknown runner: %s, skipping", *playwrightRunner)
 	}
 
@@ -270,7 +272,7 @@ func TestPlaywrightBrowser(t *testing.T) {
 
 				var performedAction action
 				var err error
-				for i := 0; i < 5; i++ {
+				for i := range 5 {
 					performedAction, err = executeTestCase(t, tc, typ, anubisURL)
 					if performedAction == tc.action {
 						break
@@ -400,9 +402,11 @@ func TestPlaywrightWithBasePrefix(t *testing.T) {
 				pwFail(t, page, "could not get cookies: %v", err)
 			}
 
+			// The cookie name has a suffix that is derived from the cookie
+			// settings, so match on the prefix only.
 			var found bool
 			for _, cookie := range cookies {
-				if cookie.Name == anubis.CookieName {
+				if strings.HasPrefix(cookie.Name, anubis.CookieName+"-") {
 					found = true
 					if cookie.Path != basePrefix+"/" {
 						t.Errorf("cookie path is wrong, wanted %s, got: %s", basePrefix+"/", cookie.Path)
@@ -595,7 +599,7 @@ func spawnAnubisWithOptions(t *testing.T, basePrefix string) string {
 		fmt.Fprintf(w, "<html><body><span id=anubis-test>%d</span></body></html>", time.Now().Unix())
 	})
 
-	policy, err := libanubis.LoadPoliciesOrDefault(t.Context(), "", anubis.DefaultDifficulty)
+	policy, err := libanubis.LoadPoliciesOrDefault(t.Context(), "", anubis.DefaultDifficulty, "info", false)
 	if err != nil {
 		t.Fatal(err)
 	}

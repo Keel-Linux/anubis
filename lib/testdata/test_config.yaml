@@ -35,4 +35,10 @@ status_codes:
   CHALLENGE: 200
   DENY: 200
 
-thresholds: []
+thresholds:
+  - name: minimal-suspicion
+    expression: "true"
+    action: CHALLENGE
+    challenge:
+      algorithm: fast
+      difficulty: 1
