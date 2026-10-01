@@ -66,8 +66,9 @@ autopkgtest --ignore-restrictions=isolation-container,breaks-testbed \
 
 CI builds the package in a `debian:trixie` container with
 trixie-backports, runs lintian (any error or warning fails), and runs the
-autopkgtest as above in a trixie container booted with systemd under
-podman.
+autopkgtest as above in a trixie LXC system container on the self-hosted
+runner keel-lxc-1. The build runs on a GitHub-hosted runner, as
+Keel-Linux/common builds its packages.
 
 ## License
 
