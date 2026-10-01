@@ -64,6 +64,14 @@ override_dh_dwz:
 override_dh_gencontrol:
 	dh_gencontrol -- "-Vmisc:Static-Built-Using=$$(dpkg-query -W -f='$${source:Package} (= $${source:Version})' golang-1.26-go)"
 
+# Apache-2.0, section 4(d): the NOTICE files of the vendored modules go
+# with the binaries built from them.
+execute_after_dh_installdocs:
+	cd vendor && find . \( -name NOTICE -o -name NOTICE.txt \) -print | \
+		while read -r f; do \
+			install -D -m 0644 "$$f" "../debian/anubis/usr/share/doc/anubis/vendor/$$f"; \
+		done
+
 override_dh_installsystemd:
 	dh_installsystemd --no-enable --no-start --no-stop-on-upgrade
 
