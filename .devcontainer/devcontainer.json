@@ -5,7 +5,7 @@
   "dockerComposeFile": ["./docker-compose.yaml"],
   "service": "workspace",
   "workspaceFolder": "/workspace/anubis",
-  "postStartCommand": "npm ci && go mod download",
+  "postStartCommand": "bash ./.devcontainer/poststart.sh",
   "features": {
     "ghcr.io/xe/devcontainer-features/ko:1.1.0": {},
     "ghcr.io/devcontainers/features/github-cli:1": {}
@@ -19,8 +19,14 @@
         "golang.go",
         "unifiedjs.vscode-mdx",
         "a-h.templ",
-        "redhat.vscode-yaml"
-      ]
+        "redhat.vscode-yaml",
+        "streetsidesoftware.code-spell-checker"
+      ],
+      "settings": {
+        "chat.instructionsFilesLocations": {
+          ".github/copilot-instructions.md": true
+        }
+      }
     }
   }
 }

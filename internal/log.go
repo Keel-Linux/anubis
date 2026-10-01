@@ -2,6 +2,7 @@ package internal
 
 import (
 	"fmt"
+	"io"
 	"log"
 	"log/slog"
 	"net/http"
@@ -9,7 +10,7 @@ import (
 	"strings"
 )
 
-func InitSlog(level string) {
+func InitSlog(level string, sink io.Writer) *slog.Logger {
 	var programLevel slog.Level
 	if err := (&programLevel).UnmarshalText([]byte(level)); err != nil {
 		fmt.Fprintf(os.Stderr, "invalid log level %s: %v, using info\n", level, err)
@@ -19,20 +20,28 @@ func InitSlog(level string) {
 	leveler := &slog.LevelVar{}
 	leveler.Set(programLevel)
 
-	h := slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{
+	h := slog.NewJSONHandler(sink, &slog.HandlerOptions{
 		AddSource: true,
 		Level:     leveler,
 	})
-	slog.SetDefault(slog.New(h))
+	result := slog.New(h)
+	return result
 }
 
-func GetRequestLogger(r *http.Request) *slog.Logger {
-	return slog.With(
+func GetRequestLogger(base *slog.Logger, r *http.Request) *slog.Logger {
+	host := r.Host
+	if host == "" {
+		host = r.Header.Get("X-Forwarded-Host")
+	}
+
+	return base.With(
+		"host", host,
+		"method", r.Method,
+		"path", r.URL.Path,
 		"user_agent", r.UserAgent(),
 		"accept_language", r.Header.Get("Accept-Language"),
 		"priority", r.Header.Get("Priority"),
-		"x-forwarded-for",
-		r.Header.Get("X-Forwarded-For"),
+		"x-forwarded-for", r.Header.Get("X-Forwarded-For"),
 		"x-real-ip", r.Header.Get("X-Real-Ip"),
 	)
 }
@@ -46,6 +55,9 @@ func (elf *ErrorLogFilter) Write(p []byte) (n int, err error) {
 	logMessage := string(p)
 	if strings.Contains(logMessage, "context canceled") {
 		return len(p), nil // Suppress the log by doing nothing
+	}
+	if strings.Contains(logMessage, "Unsolicited response received on idle HTTP channel") {
+		return len(p), nil
 	}
 	if elf.Unwrap != nil {
 		return elf.Unwrap.Writer().Write(p)

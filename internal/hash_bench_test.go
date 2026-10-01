@@ -184,7 +184,7 @@ func TestHashCollisions(t *testing.T) {
 	for _, prefix := range prefixes {
 		for _, suffix := range suffixes {
 			for _, variation := range variations {
-				for i := 0; i < 100; i++ {
+				for i := range 100 {
 					input := fmt.Sprintf("%s%s%s-%d", prefix, suffix, variation, i)
 					hash := XXHash64sum(input)
 					if existing, exists := xxhashHashes[hash]; exists {
@@ -211,7 +211,7 @@ func TestHashCollisions(t *testing.T) {
 
 	seqCount := 0
 	for _, pattern := range patterns {
-		for i := 0; i < 10000; i++ {
+		for i := range 10000 {
 			input := fmt.Sprintf(pattern, i)
 			hash := XXHash64sum(input)
 			if existing, exists := xxhashHashes[hash]; exists {
@@ -251,6 +251,7 @@ func TestXXHashFormat(t *testing.T) {
 
 		// Make sure it's all hex characters
 		for _, char := range hash {
+			//nolint:staticcheck
 			if !((char >= '0' && char <= '9') || (char >= 'a' && char <= 'f')) {
 				t.Errorf("Non-hex character %c in hash %s for input %q", char, hash, input)
 			}

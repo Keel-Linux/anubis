@@ -7,10 +7,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/TecharoHQ/anubis/lib/policy/config"
+	"github.com/TecharoHQ/anubis/lib/config"
 	"github.com/TecharoHQ/anubis/lib/store/memory"
 )
 
+//nolint:errcheck
 func TestIntegrationGetOGTags(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html")
@@ -111,7 +112,7 @@ func TestIntegrationGetOGTags(t *testing.T) {
 				Enabled:      true,
 				TimeToLive:   time.Minute,
 				ConsiderHost: false,
-			}, memory.New(t.Context()))
+			}, memory.New(t.Context()), TargetOptions{})
 
 			// Create URL for test
 			testURL, _ := url.Parse(ts.URL)

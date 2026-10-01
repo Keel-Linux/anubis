@@ -1,3 +1,30 @@
 {
-  "supportedLanguages": ["en", "fr", "es", "pt-BR", "de", "tr", "zh-TW"]
+  "supportedLanguages": [
+    "cs",
+    "de",
+    "en",
+    "es",
+    "et",
+    "fi",
+    "fil",
+    "fr",
+    "hr",
+    "is",
+    "it",
+    "ja",
+    "lt",
+    "nb",
+    "nl",
+    "nn",
+    "pl",
+    "pt-BR",
+    "ru",
+    "tr",
+    "uk",
+    "vi",
+    "zh-CN",
+    "zh-TW",
+    "sv",
+    "bg"
+  ]
 }

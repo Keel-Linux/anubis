@@ -77,7 +77,7 @@ For example, consider this rule:
 
 For this rule, if a request comes in from `8.8.8.8` or `1.1.1.1`, Anubis will deny the request and return an error page.
 
-#### `all` blocks
+### `all` blocks
 
 An `all` block that contains a list of expressions. If all expressions in the list return `true`, then the action specified in the rule will be taken. If any of the expressions in the list returns `false`, Anubis will move on to the next rule.
 
@@ -103,6 +103,7 @@ Anubis exposes the following variables to expressions:
 | :-------------- | :-------------------- | :-------------------------------------------------------------------------------------------------------------------------------------------- | :----------------------------------------------------------- |
 | `headers`       | `map[string, string]` | The [headers](https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers) of the request being processed.                            | `{"User-Agent": "Mozilla/5.0 Gecko/20100101 Firefox/137.0"}` |
 | `host`          | `string`              | The [HTTP hostname](https://web.dev/articles/url-parts#host) the request is targeted to.                                                      | `anubis.techaro.lol`                                         |
+| `contentLength` | `int64`               | The numerical value of the `Content-Length` header.                                                                                           |
 | `load_1m`       | `double`              | The current system load average over the last one minute. This is useful for making [load-based checks](#using-the-system-load-average).      |
 | `load_5m`       | `double`              | The current system load average over the last five minutes. This is useful for making [load-based checks](#using-the-system-load-average).    |
 | `load_15m`      | `double`              | The current system load average over the last fifteen minutes. This is useful for making [load-based checks](#using-the-system-load-average). |
@@ -123,7 +124,7 @@ In order to avoid this, make sure the header or query parameter you are testing 
     - 'path == "/index.php"'
     - '"title" in query'
     - '"action" in query'
-    - 'query["action"] == "history"
+    - 'query["action"] == "history"'
 ```
 
 This rule throws a challenge if and only if all of the following conditions are true:
@@ -186,7 +187,31 @@ Also keep in mind that this does not account for other kinds of latency like I/O
 
 Anubis expressions can be augmented with the following functions:
 
+### `missingHeader`
+
+Available in `bot` expressions.
+
+```ts
+function missingHeader(headers: Record<string, string>, key: string) bool
+```
+
+`missingHeader` returns `true` if the request does not contain a header. This is useful when you are trying to assert behavior such as:
+
+```yaml
+# Adds weight to old versions of Chrome
+- name: old-chrome
+  action: WEIGH
+  weight:
+    adjust: 10
+  expression:
+    all:
+      - userAgent.matches("Chrome/[1-9][0-9]?\\.0\\.0\\.0")
+      - missingHeader(headers, "Sec-Ch-Ua")
+```
+
 ### `randInt`
+
+Available in all expressions.
 
 ```ts
 function randInt(n: int): int;
@@ -207,6 +232,153 @@ This is best applied when doing explicit block rules, eg:
 ```
 
 It seems counter-intuitive to allow known bad clients through sometimes, but this allows you to confuse attackers by making Anubis' behavior random. Adjust the thresholds and numbers as facts and circumstances demand.
+
+### `regexSafe`
+
+Available in `bot` expressions.
+
+```ts
+function regexSafe(input: string): string;
+```
+
+`regexSafe` takes a string and escapes it for safe use inside of a regular expression. This is useful when you are creating regular expressions from headers or variables such as `remoteAddress`.
+
+| Input                      | Output          |
+| :------------------------- | :-------------- |
+| `regexSafe("1.2.3.4")`     | `1\\.2\\.3\\.4` |
+| `regexSafe("techaro.lol")` | `techaro\\.lol` |
+| `regexSafe("star*")`       | `star\\*`       |
+| `regexSafe("plus+")`       | `plus\\+`       |
+| `regexSafe("{braces}")`    | `\\{braces\\}`  |
+| `regexSafe("start^")`      | `start\\^`      |
+| `regexSafe("back\\slash")` | `back\\\\slash` |
+| `regexSafe("dash-dash")`   | `dash\\-dash`   |
+
+### `segments`
+
+Available in `bot` expressions.
+
+```ts
+function segments(path: string): string[];
+```
+
+`segments` returns the number of slash-separated path segments, ignoring the leading slash. Here is what it will return with some common paths:
+
+| Input                    | Output                 |
+| :----------------------- | :--------------------- |
+| `segments("/")`          | `[""]`                 |
+| `segments("/foo/bar")`   | `["foo", "bar"] `      |
+| `segments("/users/xe/")` | `["users", "xe", ""] ` |
+
+:::note
+
+If the path ends with a `/`, then the last element of the result will be an empty string. This is because `/users/xe` and `/users/xe/` are semantically different paths.
+
+:::
+
+This is useful if you want to write rules that allow requests that have no query parameters only if they have less than two path segments:
+
+```yaml
+- name: two-path-segments-no-query
+  action: ALLOW
+  expression:
+    all:
+      - size(query) == 0
+      - size(segments(path)) < 2
+```
+
+### DNS Functions
+
+Anubis can also perform DNS lookups as a part of its expression evaluation. This can be useful for doing things like checking for a valid [Forward-confirmed reverse DNS (FCrDNS)](https://en.wikipedia.org/wiki/Forward-confirmed_reverse_DNS) record.
+
+#### `arpaReverseIP`
+
+Available in `bot` expressions.
+
+```ts
+function arpaReverseIP(ip: string): string;
+```
+
+`arpaReverseIP` takes an IP address and returns its value in [ARPA notation](https://www.ietf.org/rfc/rfc2317.html). This can be useful when matching PTR record patterns.
+
+| Input                          | Output                                                            |
+| :----------------------------- | :---------------------------------------------------------------- |
+| `arpaReverseIP("1.2.3.4")`     | `4.3.2.1`                                                         |
+| `arpaReverseIP("2001:db8::1")` | `1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.8.b.d.0.1.0.0.2` |
+
+#### `lookupHost`
+
+Available in `bot` expressions.
+
+```ts
+function lookupHost(host: string): string[];
+```
+
+`lookupHost` performs a DNS lookup for the given hostname and returns a list of IP addresses.
+
+```yaml
+- name: cloudflare-ip-in-host-header
+  action: DENY
+  expression: '"104.16.0.0" in lookupHost(headers["Host"])'
+```
+
+#### `reverseDNS`
+
+Available in `bot` expressions.
+
+```ts
+function reverseDNS(ip: string): string[];
+```
+
+`reverseDNS` takes an IP address and returns the DNS names associated with it. This is useful when you want to check PTR records of an IP address.
+
+```yaml
+- name: allow-googlebot
+  action: ALLOW
+  expression: 'reverseDNS(remoteAddress).endsWith(".googlebot.com")'
+```
+
+::: warning
+
+Do not use this for validating the legitimacy of an IP address. It is possible for DNS records to be out of date or otherwise manipulated. Use [`verifyFCrDNS`](#verifyfcrdns) instead for a more reliable result.
+
+:::
+
+#### `verifyFCrDNS`
+
+Available in `bot` expressions.
+
+```ts
+function verifyFCrDNS(ip: string): bool;
+function verifyFCrDNS(ip: string, pattern: string): bool;
+```
+
+`verifyFCrDNS` checks if the reverse DNS of an IP address matches its forward DNS. This is a common technique to filter out spam and bot traffic. `verifyFCrDNS` comes in two forms:
+
+- `verifyFCrDNS(remoteAddress)` will check that the reverse DNS of the remote address resolves back to the remote address. If no PTR records, returns true.
+- `verifyFCrDNS(remoteAddress, pattern)` will check that the reverse DNS of the remote address is matching with pattern and that name resolves back to the remote address.
+
+This is best used in rules like this:
+
+```yaml
+- name: require-fcrdns-for-post
+  action: DENY
+  expression:
+    all:
+      - method == "POST"
+      - "!verifyFCrDNS(remoteAddress)"
+```
+
+Here is an another example that allows requests from telegram:
+
+```yaml
+- name: telegrambot
+  action: ALLOW
+  expression:
+    all:
+      - userAgent.matches("TelegramBot")
+      - verifyFCrDNS(remoteAddress, "ptr\\.telegram\\.org$")
+```
 
 ## Life advice
 

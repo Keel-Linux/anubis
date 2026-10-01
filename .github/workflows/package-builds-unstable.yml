@@ -2,9 +2,9 @@ name: Package builds (unstable)
 
 on:
   push:
-    branches: [ "main" ]
+    branches: ["main"]
   pull_request:
-    branches: [ "main" ]
+    branches: ["main"]
 
 permissions:
   contents: read
@@ -15,60 +15,55 @@ jobs:
     #runs-on: alrest-techarohq
     runs-on: ubuntu-24.04
     steps:
-    - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
-      with:
-        persist-credentials: false
-        fetch-tags: true
-        fetch-depth: 0
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+          fetch-tags: true
+          fetch-depth: 0
 
-    - name: build essential
-      run: |
-        sudo apt-get update
-        sudo apt-get install -y build-essential
+      - name: build essential
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential
 
-    - name: Set up Homebrew
-      uses: Homebrew/actions/setup-homebrew@main
+      # Ubuntu 24.04 ships wixl 0.103, which aborts on the Component Condition
+      # in run/windows/anubis.wxs ("unhandled child Component node Condition").
+      # Homebrew has 0.106, the version mkmsi is written against.
+      - name: install msitools
+        run: |
+          # Homebrew ships on the ubuntu-24.04 runner image but is not on PATH.
+          if ! command -v brew >/dev/null; then
+            eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"
+          fi
+          brew update
+          brew install msitools
+          echo "$(brew --prefix)/bin" >> "$GITHUB_PATH"
 
-    - name: Setup Homebrew cellar cache
-      uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
-      with:
-        path: |
-          /home/linuxbrew/.linuxbrew/Cellar
-          /home/linuxbrew/.linuxbrew/bin
-          /home/linuxbrew/.linuxbrew/etc
-          /home/linuxbrew/.linuxbrew/include
-          /home/linuxbrew/.linuxbrew/lib
-          /home/linuxbrew/.linuxbrew/opt
-          /home/linuxbrew/.linuxbrew/sbin
-          /home/linuxbrew/.linuxbrew/share
-          /home/linuxbrew/.linuxbrew/var
-        key: ${{ runner.os }}-go-homebrew-cellar-${{ hashFiles('go.sum') }}
-        restore-keys: |
-          ${{ runner.os }}-go-homebrew-cellar-
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: "24.11.0"
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
+        with:
+          go-version: "stable"
 
-    - name: Install Brew dependencies
-      run: |
-        brew bundle
+      - name: install node deps
+        run: |
+          npm ci
 
-    - name: Setup Golang caches
-      uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
-      with:
-        path: |
-          ~/.cache/go-build
-          ~/go/pkg/mod
-        key: ${{ runner.os }}-golang-${{ hashFiles('**/go.sum') }}
-        restore-keys: |
-          ${{ runner.os }}-golang-
+      - name: Build Packages
+        run: |
+          go tool yeet
 
-    - name: install node deps
-      run: |
-        npm ci
+      - name: Verify MSI contents
+        env:
+          # msitools is installed and the zips are built above, so a skipped
+          # verification test here would be a green check that verified
+          # nothing. See skipOrFail in internal/cmd/mkmsi/msi_test.go.
+          MKMSI_REQUIRE_VERIFY: "true"
+        run: |
+          go test -count=1 -v -run TestMSI ./internal/cmd/mkmsi/
 
-    - name: Build Packages
-      run: |
-        go tool yeet
-
-    - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
-      with:
-        name: packages
-        path: var/*
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: packages
+          path: var/*

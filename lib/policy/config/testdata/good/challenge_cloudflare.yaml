@@ -1,6 +1,0 @@
-bots:
-  - name: challenge-cloudflare
-    action: CHALLENGE
-    asns:
-      match:
-        - 13335 # Cloudflare
