@@ -157,9 +157,11 @@ allowed() {
         && fail "Host $1, redir $2: refused, expected allowed"
     pass "Host $1, redir $2: allowed"
 }
+# refused either way: another host ("Redirect domain not allowed") or a
+# form no redirect may take, //evil among them ("Invalid redirect")
 refused() {
     pass_challenge "$1" "$2"
-    grep -q 'Redirect domain not allowed' "$WORK/pass" \
+    grep -q -e 'Redirect domain not allowed' -e 'Invalid redirect' "$WORK/pass" \
         || fail "Host $1, redir $2: not refused"
     pass "Host $1, redir $2: refused"
 }
