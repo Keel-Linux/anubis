@@ -6,6 +6,10 @@ anubis (1.27.0-0+keel2) trixie; urgency=medium
     to those clients (Keel-Linux/keel-web#2). A missing Accept-Encoding
     accepts any coding; the proof of work is the defence. The patch adds
     a test of 4096 requests without gzip, all challenged.
+  * Accept IPv6 literals ([2001:db8::1]) in REDIRECT_DOMAINS
+    (debian/patches/redirect-domains-ipv6.patch): Keel Web sets it to the
+    machine's names and addresses to close pass-challenge's open
+    redirect, and Anubis refused to start on an IPv6 entry.
   * debian/rules: TestChallengeFor_ErrNotFound, skipped as flaky because
     of that refusal, runs again.
   * autopkgtest: 512 requests without Accept-Encoding through nginx all

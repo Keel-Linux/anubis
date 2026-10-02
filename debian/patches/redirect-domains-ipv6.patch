@@ -1,0 +1,92 @@
+Description: Accept IPv6 literals in REDIRECT_DOMAINS
+ Without REDIRECT_DOMAINS, pass-challenge redirects a solved challenge to
+ any host: it compares the host of redir with itself (lib/anubis.go,
+ PassChallenge), an open redirect. Keel Web sets REDIRECT_DOMAINS to the
+ machine's names and addresses, as its default site answers by IP too;
+ the host of an IPv6 URL is bracketed, [2001:db8::1], and that is what
+ Anubis compares, but main refused such an entry at start, as url.Parse
+ reads it as a path whose first segment has a colon ("cannot parse
+ redirect-domain"). An entry is now accepted when it parses as the host
+ of a URL (url.Parse("//" + entry)), or as a URL as before, so nothing
+ accepted before is refused. TestParseRedirectDomains covers names,
+ addresses, an IPv6 literal, a glob and a refused entry.
+Author: Marcos Mendez <mendez.foto@gmail.com>
+Forwarded: no
+Last-Update: 2026-10-02
+---
+--- a/cmd/anubis/main.go
++++ b/cmd/anubis/main.go
+@@ -119,6 +119,25 @@ func doHealthCheck() error {
+ 	return nil
+ }
+ 
++// parseRedirectDomains splits REDIRECT_DOMAINS on commas and checks each
++// entry. An entry is a host as it appears in a URL, so an IPv6 literal is
++// bracketed, [2001:db8::1]; url.Parse alone refuses that ("first path
++// segment in URL cannot contain colon"), so an entry is accepted when it
++// parses as the host of a URL, or, as before, as a URL.
++func parseRedirectDomains(s string) ([]string, error) {
++	var domains []string
++	for domain := range strings.SplitSeq(s, ",") {
++		domain = strings.TrimSpace(domain)
++		if _, err := url.Parse("//" + domain); err != nil {
++			if _, err := url.Parse(domain); err != nil {
++				return nil, fmt.Errorf("cannot parse redirect-domain %q: %w", domain, err)
++			}
++		}
++		domains = append(domains, domain)
++	}
++	return domains, nil
++}
++
+ func parseSameSite(s string) http.SameSite {
+ 	switch strings.ToLower(s) {
+ 	case "none":
+@@ -400,13 +419,9 @@ func run(ctx context.Context) {
+ 
+ 	var redirectDomainsList []string
+ 	if *redirectDomains != "" {
+-		domains := strings.SplitSeq(*redirectDomains, ",")
+-		for domain := range domains {
+-			_, err = url.Parse(domain)
+-			if err != nil {
+-				log.Fatalf("cannot parse redirect-domain %q: %s", domain, err.Error())
+-			}
+-			redirectDomainsList = append(redirectDomainsList, strings.TrimSpace(domain))
++		redirectDomainsList, err = parseRedirectDomains(*redirectDomains)
++		if err != nil {
++			log.Fatal(err)
+ 		}
+ 	} else {
+ 		lg.WarnContext(ctx, "REDIRECT_DOMAINS is not set, Anubis will redirect to any domain, see https://anubis.techaro.lol/docs/admin/configuration/redirect-domains")
+--- a/cmd/anubis/main_test.go
++++ b/cmd/anubis/main_test.go
+@@ -4,9 +4,28 @@ import (
+ 	"net/http"
+ 	"net/http/httptest"
+ 	"net/url"
++	"slices"
+ 	"testing"
+ )
+ 
++// TestParseRedirectDomains makes sure that REDIRECT_DOMAINS takes an IPv6
++// literal the way it appears as the host of a URL, [2001:db8::1], next to
++// names and globs, and still refuses what no host can be.
++func TestParseRedirectDomains(t *testing.T) {
++	got, err := parseRedirectDomains("web, web.example.org,10.0.3.158,[fd42:b2:0:1::6554],*.example.org")
++	if err != nil {
++		t.Fatalf("unexpected error: %v", err)
++	}
++	want := []string{"web", "web.example.org", "10.0.3.158", "[fd42:b2:0:1::6554]", "*.example.org"}
++	if !slices.Equal(got, want) {
++		t.Fatalf("got %q, want %q", got, want)
++	}
++
++	if _, err := parseRedirectDomains("web,%zz"); err == nil {
++		t.Fatal("an unparseable domain was accepted")
++	}
++}
++
+ func TestMakeReverseProxy(t *testing.T) {
+ 	type received struct {
+ 		host  string
