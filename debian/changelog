@@ -1,3 +1,23 @@
+anubis (1.27.0-0+keel3) trixie; urgency=medium
+
+  * Close pass-challenge's open redirect without REDIRECT_DOMAINS
+    (debian/patches/redir-same-host.patch): with it empty, redir may only
+    be relative or name the request's own scheme, host and port, never
+    carry userinfo; upstream compared redir's host with itself. Every
+    name a site is reached by keeps working, which a fixed
+    REDIRECT_DOMAINS cannot promise.
+  * Refuse redir forms a browser resolves to another host
+    (debian/patches/redir-validate.patch, a backport of upstream's
+    validateRedirect): backslashes (/\evil is //evil to a browser),
+    control bytes, leading space, opaque URLs, a path starting with //,
+    checked again after percent-decoding (/%2F/evil, /%5Cevil).
+  * autopkgtest: pass-challenge behind nginx allows the same host by an
+    unlisted name, a relative redir and an IPv6 literal, and refuses
+    another host, //evil, userinfo and another IPv6 address, and /\evil,
+    /%2F/evil, /%5Cevil, %09//evil and " //evil" as invalid.
+
+ -- Marcos Méndez <mendez.foto@gmail.com>  Fri, 02 Oct 2026 06:00:00 +0000
+
 anubis (1.27.0-0+keel2) trixie; urgency=medium
 
   * Serve the challenge to clients that do not accept gzip
