@@ -171,3 +171,18 @@ refused unlisted.keel.test //evil.example/
 refused unlisted.keel.test http://a@evil.example/
 refused unlisted.keel.test http://unlisted.keel.test@evil.example/
 refused '[fd42:b2:0:1::6554]' 'http://[2001:db8::1]/'
+
+# redir forms a browser resolves to another host though Go sees no host
+# in them: refused as "Invalid redirect" (redir-validate.patch)
+invalid() {
+    pass_challenge "$1" "$2"
+    grep -q 'Invalid redirect' "$WORK/pass" \
+        || fail "Host $1, redir '$2': not refused as an invalid redirect"
+    pass "Host $1, redir '$2': invalid redirect"
+}
+invalid unlisted.keel.test '/\evil.example'
+invalid unlisted.keel.test '/%2F/evil.example'
+invalid unlisted.keel.test '/%5Cevil.example'
+invalid unlisted.keel.test "$(printf '\t//evil.example')"
+invalid unlisted.keel.test '%09//evil.example'
+invalid unlisted.keel.test ' //evil.example'
