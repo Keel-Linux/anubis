@@ -131,3 +131,43 @@ for path in /.within.website/x/cmd/anubis/static/js/main.mjs \
     [ "$code" = 200 ] && [ -s "$WORK/asset" ] || fail "$path: HTTP $code"
     pass "$path served ($(wc -c < "$WORK/asset") bytes)"
 done
+
+# pass-challenge with REDIRECT_DOMAINS empty (default.env): redir only to
+# the origin of the request, whatever name it came by. The check runs
+# before the challenge is looked up, so a made-up challenge tells the two
+# apart: a refused redir says "Redirect domain not allowed", an allowed
+# one goes on and fails on the challenge. The test cookie is Secure,
+# which curl keeps from plain HTTP, so it is sent by hand.
+pass_challenge() { # pass_challenge HOST REDIR: the body to $WORK/pass
+    local cookie
+    cookie=$(curl -sS -o /dev/null -D - -A "$BROWSER" -H "Host: $1" \
+        -H "X-Test-Client: 203.0.113.12" "$FRONT/" |
+        tr -d '\r' | sed -n 's/^[Ss]et-[Cc]ookie: \([^=]*-cookie-verification[^=]*=[^;]*\).*/\1/p' | head -1)
+    [ -n "$cookie" ] || fail "no test cookie from the challenge page for Host $1"
+    curl -sS -o "$WORK/pass" -A "$BROWSER" -H "Host: $1" -H "Cookie: $cookie" \
+        -H "X-Test-Client: 203.0.113.12" -G \
+        --data-urlencode "id=00000000-0000-0000-0000-000000000000" \
+        --data-urlencode "response=00" --data-urlencode "nonce=0" \
+        --data-urlencode "elapsedTime=1" --data-urlencode "redir=$2" \
+        "$FRONT/.within.website/x/cmd/anubis/api/pass-challenge"
+}
+allowed() {
+    pass_challenge "$1" "$2"
+    grep -q 'Redirect domain not allowed' "$WORK/pass" \
+        && fail "Host $1, redir $2: refused, expected allowed"
+    pass "Host $1, redir $2: allowed"
+}
+refused() {
+    pass_challenge "$1" "$2"
+    grep -q 'Redirect domain not allowed' "$WORK/pass" \
+        || fail "Host $1, redir $2: not refused"
+    pass "Host $1, redir $2: refused"
+}
+allowed unlisted.keel.test http://unlisted.keel.test/page
+allowed unlisted.keel.test /page
+allowed '[fd42:b2:0:1::6554]' 'http://[fd42:b2:0:1::6554]/'
+refused unlisted.keel.test http://evil.example/
+refused unlisted.keel.test //evil.example/
+refused unlisted.keel.test http://a@evil.example/
+refused unlisted.keel.test http://unlisted.keel.test@evil.example/
+refused '[fd42:b2:0:1::6554]' 'http://[2001:db8::1]/'

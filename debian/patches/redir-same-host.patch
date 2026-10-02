@@ -1,0 +1,154 @@
+Description: Redirect only to the request's own origin while REDIRECT_DOMAINS is empty
+ PassChallenge sends the client to redir once the challenge is solved.
+ With REDIRECT_DOMAINS empty it compared the host of redir with itself
+ (r.URL is redir, parsed again), so any host passed: an open redirect.
+ REDIRECT_DOMAINS closes it only for the names written in it, and Keel
+ Web's sites are reached by names and addresses the machine cannot list
+ ahead of time (a new DNS name, a site of handbook decision 0042, a
+ cloud public IP behind NAT).
+ .
+ redirectAllowed now decides: never a URL with userinfo; always a
+ relative one, as before; with REDIRECT_DOMAINS set, a host in it, as
+ before; with it empty, only the scheme, host and port of the request
+ itself (X-Forwarded-Proto or http, and the Host header, default ports
+ filled in), so every name the site is reached by works and no other
+ host can be reached through it. TestRedirectAllowed covers the same
+ host by name, by an unlisted name, by IPv4 and by an IPv6 literal, and
+ refuses another host, a scheme-relative //evil, userinfo, another port
+ and another scheme.
+Author: Marcos Mendez <mendez.foto@gmail.com>
+Bug: https://github.com/Keel-Linux/keel-web/pull/3
+Forwarded: no
+Last-Update: 2026-10-02
+---
+--- a/lib/anubis.go
++++ b/lib/anubis.go
+@@ -496,6 +496,59 @@ func (s *Server) MakeChallenge(w http.Re
+ 	}
+ }
+ 
++// redirectAllowed says whether pass-challenge may send the client to
++// redir. A URL with userinfo never. A relative URL (no host, no scheme)
++// always, as before. An absolute one: when allowed (REDIRECT_DOMAINS) is
++// set, when its host is in it, as before; when it is empty, only when its
++// scheme, host and port are those of the request (X-Forwarded-Proto, or
++// http, and the Host header), so every name the site is reached by works
++// and no other host can be reached through it. Upstream compared the host
++// of redir with itself there, which let any host through.
++func redirectAllowed(r *http.Request, redir *url.URL, allowed []string) bool {
++	if redir.User != nil {
++		return false
++	}
++	if redir.Host == "" {
++		return redir.Scheme == ""
++	}
++	if len(allowed) != 0 {
++		return matchRedirectDomain(allowed, redir.Host)
++	}
++	scheme := requestScheme(r)
++	if redir.Scheme != "" && !strings.EqualFold(redir.Scheme, scheme) {
++		return false
++	}
++	return sameHostPort(redir.Host, r.Host, scheme)
++}
++
++// requestScheme is the scheme the client used: the X-Forwarded-Proto of
++// the proxy in front when it is http or https, else that of the
++// connection.
++func requestScheme(r *http.Request) string {
++	switch proto := strings.ToLower(r.Header.Get("X-Forwarded-Proto")); proto {
++	case "http", "https":
++		return proto
++	}
++	if r.TLS != nil {
++		return "https"
++	}
++	return "http"
++}
++
++// sameHostPort compares two URL hosts, case-insensitively, with the
++// scheme's default port filled in where none is written.
++func sameHostPort(a, b, scheme string) bool {
++	canonical := func(host string) string {
++		u := url.URL{Host: host}
++		port := u.Port()
++		if port == "" {
++			port = map[string]string{"http": "80", "https": "443"}[scheme]
++		}
++		return net.JoinHostPort(strings.ToLower(u.Hostname()), port)
++	}
++	return b != "" && canonical(a) == canonical(b)
++}
++
+ func (s *Server) PassChallenge(w http.ResponseWriter, r *http.Request) {
+ 	lg, r := s.getRequestLogger(r)
+ 	localizer := localization.GetLocalizer(r)
+@@ -539,7 +592,7 @@ func (s *Server) PassChallenge(w http.Re
+ 		s.respondWithError(w, r, localizer.T("redirect_not_parseable"), makeCode(err))
+ 		return
+ 	}
+-	if (len(urlParsed.Host) > 0 && len(s.opts.RedirectDomains) != 0 && !matchRedirectDomain(s.opts.RedirectDomains, urlParsed.Host)) || urlParsed.Host != r.URL.Host {
++	if !redirectAllowed(r, urlParsed, s.opts.RedirectDomains) || urlParsed.Host != r.URL.Host {
+ 		lg.DebugContext(r.Context(), "domain not allowed", "domain", urlParsed.Host)
+ 		s.respondWithError(w, r, localizer.T("redirect_domain_not_allowed"), "")
+ 		return
+--- /dev/null
++++ b/lib/redirect_same_host_test.go
+@@ -0,0 +1,57 @@
++package lib
++
++import (
++	"net/http/httptest"
++	"net/url"
++	"testing"
++)
++
++// TestRedirectAllowed makes sure that, while REDIRECT_DOMAINS is empty,
++// pass-challenge redirects only to the origin the request came to
++// (scheme, host and port), or to a relative URL, so that every name the
++// site is reached by works and the open redirect stays closed; and that
++// a configured REDIRECT_DOMAINS still decides as before.
++func TestRedirectAllowed(t *testing.T) {
++	for _, tt := range []struct {
++		name    string
++		host    string
++		proto   string
++		redir   string
++		domains []string
++		want    bool
++	}{
++		{name: "relative path", host: "web.example.org", proto: "https", redir: "/page?x=1", want: true},
++		{name: "same host", host: "web.example.org", proto: "https", redir: "https://web.example.org/page", want: true},
++		{name: "same host, other case", host: "Web.Example.org", proto: "https", redir: "https://web.example.ORG/", want: true},
++		{name: "same host, default port written", host: "web.example.org", proto: "https", redir: "https://web.example.org:443/", want: true},
++		{name: "a name not in /etc/hosts", host: "unlisted.keel.test", proto: "https", redir: "https://unlisted.keel.test/", want: true},
++		{name: "same IPv4", host: "10.0.3.86", proto: "https", redir: "https://10.0.3.86/", want: true},
++		{name: "same IPv6 literal", host: "[fd42:b2:0:1::6554]", proto: "https", redir: "https://[fd42:b2:0:1::6554]/x", want: true},
++		{name: "other IPv6 literal", host: "[fd42:b2:0:1::6554]", proto: "https", redir: "https://[2001:db8::1]/", want: false},
++		{name: "other host", host: "web.example.org", proto: "https", redir: "https://evil.example/", want: false},
++		{name: "scheme-relative other host", host: "web.example.org", proto: "https", redir: "//evil.example/", want: false},
++		{name: "userinfo naming the host", host: "web.example.org", proto: "https", redir: "https://web.example.org@evil.example/", want: false},
++		{name: "userinfo on the same host", host: "web.example.org", proto: "https", redir: "https://a@web.example.org/", want: false},
++		{name: "other port", host: "web.example.org", proto: "https", redir: "https://web.example.org:8443/", want: false},
++		{name: "other scheme", host: "web.example.org", proto: "https", redir: "http://web.example.org/", want: false},
++		{name: "no X-Forwarded-Proto is http", host: "web.example.org", proto: "", redir: "http://web.example.org/", want: true},
++		{name: "a scheme with no host", host: "web.example.org", proto: "https", redir: "https:/page", want: false},
++		{name: "REDIRECT_DOMAINS allows a listed host", host: "web.example.org", proto: "https", redir: "https://other.example/", domains: []string{"other.example"}, want: true},
++		{name: "REDIRECT_DOMAINS refuses the request's own host when unlisted", host: "web.example.org", proto: "https", redir: "https://web.example.org/", domains: []string{"other.example"}, want: false},
++	} {
++		t.Run(tt.name, func(t *testing.T) {
++			req := httptest.NewRequest("GET", "/.within.website/x/cmd/anubis/api/pass-challenge", nil)
++			req.Host = tt.host
++			if tt.proto != "" {
++				req.Header.Set("X-Forwarded-Proto", tt.proto)
++			}
++			redir, err := url.Parse(tt.redir)
++			if err != nil {
++				t.Fatalf("cannot parse %q: %v", tt.redir, err)
++			}
++			if got := redirectAllowed(req, redir, tt.domains); got != tt.want {
++				t.Errorf("redirectAllowed(Host %q, %q) = %v, want %v", tt.host, tt.redir, got, tt.want)
++			}
++		})
++	}
++}
