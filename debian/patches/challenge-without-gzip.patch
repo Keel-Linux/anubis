@@ -8,17 +8,28 @@ Description: Serve the challenge to clients that do not accept gzip
  actual defence, was never reached. Keel Web saw it on its own test
  client (Keel-Linux/keel-web#2).
  .
- Upstream changed the answer to the policy's DENY status in #1958 (after
- 1.27.0) and kept the sampling, which their commit leaves to "its own
- discussion"; this patch drops the sampled refusal, so such a client gets
- the challenge every time, and adds a test that 4096 requests without
- gzip, with identity and with br are all challenged. The test
+ Upstream history: the sampled refusal came with #501 ("ensure that
+ clients store cookies", https://github.com/TecharoHQ/anubis/pull/501);
+ #1958 (https://github.com/TecharoHQ/anubis/pull/1958, merged after
+ 1.27.0) changed its answer from 500 to the policy's DENY status and
+ logged it at INFO, and left the sampling itself open: its commit says
+ "whether the rejection should be sampled needs its own discussion".
+ Keel drops it rather than take #1958: a refusal at DENY status is still
+ an error page instead of the challenge for a legitimate client, and the
+ heuristic stops no scraper that sends "Accept-Encoding: gzip", which
+ costs nothing. The proof of work is the real defence, and every client
+ without gzip still has to solve it. Not forwarded yet: it belongs in the
+ sampling discussion that #1958 leaves open, where Keel will raise it.
+ .
+ This patch drops the sampled refusal, so such a client gets the
+ challenge every time, and adds a test that 4096 requests without gzip,
+ with identity and with br are all challenged. The test
  TestChallengeFor_ErrNotFound, skipped as flaky by debian/rules because of
  this refusal, runs again.
 Author: Marcos Mendez <mendez.foto@gmail.com>
 Bug: https://github.com/Keel-Linux/keel-web/issues/2
 Bug-Upstream: https://github.com/TecharoHQ/anubis/issues/1009
-Forwarded: not-needed
+Forwarded: no
 Last-Update: 2026-10-02
 ---
 --- a/lib/anubis_test.go
