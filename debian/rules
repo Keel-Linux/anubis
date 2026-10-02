@@ -26,9 +26,6 @@ GENERATED := web/static/js web/static/locales \
 
 # Packages whose tests need the network, a browser or a container runtime.
 TEST_SKIP := /internal/test$$|/cmd/containerbuild$$|/internal/dnsbl$$
-# Flaky by design: RenderIndex refuses a client without gzip support at
-# random (1 in 64), and this test sends no Accept-Encoding.
-TEST_SKIP_FLAKY := ^TestChallengeFor_ErrNotFound$$
 
 %:
 	dh $@
@@ -50,7 +47,7 @@ override_dh_auto_build:
 
 override_dh_auto_test:
 ifeq (,$(filter nocheck,$(DEB_BUILD_OPTIONS)))
-	go test -count=1 -skip '$(TEST_SKIP_FLAKY)' $$(go list ./... | grep -Ev '$(TEST_SKIP)')
+	go test -count=1 $$(go list ./... | grep -Ev '$(TEST_SKIP)')
 endif
 
 override_dh_auto_install:

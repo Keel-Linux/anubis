@@ -85,11 +85,23 @@ echo "$listeners" | grep -qv '^127\.0\.0\.1:' && fail "anubis listens beyond the
 pass "anubis listens on the loopback only"
 
 get() { # get NAME UA [CLIENT_IP]: body to $WORK/NAME, prints the status
-    # --compressed: Anubis refuses, at random, a challenged client that
-    # does not accept gzip, as no browser does.
     curl -sS --compressed -o "$WORK/$1" -w '%{http_code}' -A "$2" \
         ${3:+-H "X-Test-Client: $3"} "$FRONT/some/page"
 }
+
+# A client that does not accept gzip gets the challenge every time.
+# Upstream refused one such request in 64 at random with HTTP 500
+# (Keel-Linux/keel-web#2); 512 of them all passing that way had a chance
+# of 1 in 3000.
+i=0
+while [ "$i" -lt 512 ]; do
+    code=$(curl -sS -o "$WORK/no-gzip" -w '%{http_code}' -A "$BROWSER" \
+        -H "X-Test-Client: 203.0.113.11" "$FRONT/some/page")
+    [ "$code" = 200 ] && grep -q 'id="anubis_challenge"' "$WORK/no-gzip" \
+        || fail "request $i without Accept-Encoding: HTTP $code, not the challenge"
+    i=$((i + 1))
+done
+pass "512 requests without Accept-Encoding: the challenge page, HTTP 200, every time"
 
 code=$(get browser "$BROWSER" 203.0.113.10)
 grep -q 'id="anubis_challenge"' "$WORK/browser" \
