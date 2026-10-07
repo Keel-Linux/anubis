@@ -1,0 +1,13 @@
+# gitleaks (keel-linux/.github, security-scan.yml): the default rules, less
+# upstream's test fixtures below: throwaway TLS keys of the config tests and
+# the SSH key of the gitweb integration test (docker-compose). A new fixture
+# is added here by path once it has been read.
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "upstream test fixtures, throwaway keys on purpose"
+paths = [
+  '''^lib/config/testdata/tls/''',
+  '''^test/gitweb/secrets/id_rsa$''',
+]
