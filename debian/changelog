@@ -1,3 +1,17 @@
+anubis (1.27.0-0+keel4) trixie; urgency=medium
+
+  * Do not clear the auth cookie in the answer to a request that sent
+    none (debian/patches/keep-cookie-of-request-without-cookie.patch).
+    A subresource of the challenge page, sent before the pass-challenge
+    answer set the cookie, was answered after it with a Set-Cookie that
+    cleared the new cookie; the next page then passed, but its
+    stylesheets and scripts got the challenge page. Seen on the WordPress
+    replica of a cloud advanced pair: 8 of 147 shots of the login page
+    had no style (BR2, 2026-11-07). An invalid or expired cookie is
+    still cleared.
+
+ -- Marcos Méndez <mendez.foto@gmail.com>  Sat, 07 Nov 2026 16:00:00 +0000
+
 anubis (1.27.0-0+keel3) trixie; urgency=medium
 
   * Close pass-challenge's open redirect without REDIRECT_DOMAINS
