@@ -2,3 +2,4 @@ challenge-without-gzip.patch
 redirect-domains-ipv6.patch
 redir-same-host.patch
 redir-validate.patch
+keep-cookie-of-request-without-cookie.patch
