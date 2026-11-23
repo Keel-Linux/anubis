@@ -1,40 +1,61 @@
 Description: Redirect only to the request's own origin while REDIRECT_DOMAINS is empty
- PassChallenge sends the client to redir once the challenge is solved.
- With REDIRECT_DOMAINS empty it compared the host of redir with itself
- (r.URL is redir, parsed again), so any host passed: an open redirect.
- REDIRECT_DOMAINS closes it only for the names written in it, and Keel
- Web's sites are reached by names and addresses the machine cannot list
- ahead of time (a new DNS name, a site of handbook decision 0042, a
- cloud public IP behind NAT).
+ PassChallenge sends the client to redir twice: after a solved challenge,
+ and (since 1.28.0) to retry when the verification cookie is missing.
+ Upstream's validateRedirect (1.28.0, #1947) refuses the forms a browser
+ resolves to another host, but with REDIRECT_DOMAINS empty it still lets
+ any http or https host through: an open redirect. REDIRECT_DOMAINS
+ closes it only for the names written in it, and Keel Web's sites are
+ reached by names and addresses the machine cannot list ahead of time (a
+ new DNS name, a site of handbook decision 0042, a cloud public IP behind
+ NAT).
  .
- redirectAllowed now decides: never a URL with userinfo; always a
- relative one, as before; with REDIRECT_DOMAINS set, a host in it, as
- before; with it empty, only the scheme, host and port of the request
- itself (X-Forwarded-Proto or http, and the Host header, default ports
- filled in), so every name the site is reached by works and no other
- host can be reached through it. TestRedirectAllowed covers the same
- host by name, by an unlisted name, by IPv4 and by an IPv6 literal, and
- refuses another host, a scheme-relative //evil, userinfo, another port
- and another scheme.
+ After validateRedirect, PassChallenge now also asks redirectAllowed,
+ before either redirect: never a URL with userinfo; always a relative
+ one; with REDIRECT_DOMAINS set, a host in it, as upstream decides; with
+ it empty, only the scheme, host and port of the request itself
+ (X-Forwarded-Proto or the connection's scheme, and the Host header,
+ default ports filled in, IPv6 literals compared as such). A refusal is
+ upstream's "redirect domain not allowed" with HTTP 400. validateRedirect
+ itself and the subrequest (forward auth) path are not changed: there the
+ redirect goes to the application's host, not to the request's.
+ .
+ TestRedirectAllowed covers the decision (same host by name, by an
+ unlisted name, by IPv4 and IPv6 literal; another host, //evil,
+ userinfo, another port and scheme refused; REDIRECT_DOMAINS as before).
+ TestPassChallengeRedirectsToOwnOriginOnly drives pass-challenge through
+ both redirects with the own origin, a relative path, another host,
+ another port and IPv6 literals.
+ .
+ Keel-only: it is Keel's policy for its own topology, and as a default it
+ would break upstream's forward auth users. Upstreamable only as an
+ opt-in setting, which nobody has asked for. It can be dropped when
+ upstream offers a same-origin mode for an empty REDIRECT_DOMAINS, or
+ when Keel Web can list every name of a site in REDIRECT_DOMAINS.
+ Rewritten for 1.28.2 (on 1.27.0 it replaced the host check of
+ PassChallenge, and redir-validate.patch backported validateRedirect).
 Author: Marcos Mendez <mendez.foto@gmail.com>
 Bug: https://github.com/Keel-Linux/keel-web/pull/3
-Forwarded: no
-Last-Update: 2026-10-02
+Forwarded: not-needed
+Last-Update: 2026-11-23
 ---
 --- a/lib/anubis.go
 +++ b/lib/anubis.go
-@@ -496,6 +496,59 @@ func (s *Server) MakeChallenge(w http.Re
- 	}
+@@ -612,6 +612,63 @@ func (s *Server) validateExtension(name
+ 	return ext.Validate(r, lg, in)
  }
  
 +// redirectAllowed says whether pass-challenge may send the client to
-+// redir. A URL with userinfo never. A relative URL (no host, no scheme)
-+// always, as before. An absolute one: when allowed (REDIRECT_DOMAINS) is
-+// set, when its host is in it, as before; when it is empty, only when its
-+// scheme, host and port are those of the request (X-Forwarded-Proto, or
-+// http, and the Host header), so every name the site is reached by works
-+// and no other host can be reached through it. Upstream compared the host
-+// of redir with itself there, which let any host through.
++// redir, which validateRedirect has already accepted. A URL with userinfo
++// never. A relative URL (no host, no scheme) always. An absolute one: when
++// allowed (REDIRECT_DOMAINS) is set, when its host is in it, as
++// validateRedirect decides; when it is empty, only when its scheme, host
++// and port are those of the request (X-Forwarded-Proto, or the
++// connection's, and the Host header), so every name the site is reached
++// by works and no other host can be reached through it. Upstream lets any
++// http or https host through while REDIRECT_DOMAINS is empty.
++//
++// Only PassChallenge calls it: in the subrequest (forward auth) mode the
++// redirect goes to the application's host, not to that of the request.
 +func redirectAllowed(r *http.Request, redir *url.URL, allowed []string) bool {
 +	if redir.User != nil {
 +		return false
@@ -81,26 +102,34 @@ Last-Update: 2026-10-02
 +}
 +
  func (s *Server) PassChallenge(w http.ResponseWriter, r *http.Request) {
- 	lg, r := s.getRequestLogger(r)
- 	localizer := localization.GetLocalizer(r)
-@@ -539,7 +592,7 @@ func (s *Server) PassChallenge(w http.Re
- 		s.respondWithError(w, r, localizer.T("redirect_not_parseable"), makeCode(err))
+ 	if !prepareChallengeForm(w, r) {
  		return
+@@ -625,6 +682,11 @@ func (s *Server) PassChallenge(w http.Re
+ 	if err == nil && (redir == "" || (redirURL.Scheme == "" && !strings.HasPrefix(redir, "/"))) {
+ 		err = ErrInvalidRedirect
  	}
--	if (len(urlParsed.Host) > 0 && len(s.opts.RedirectDomains) != 0 && !matchRedirectDomain(s.opts.RedirectDomains, urlParsed.Host)) || urlParsed.Host != r.URL.Host {
-+	if !redirectAllowed(r, urlParsed, s.opts.RedirectDomains) || urlParsed.Host != r.URL.Host {
- 		lg.DebugContext(r.Context(), "domain not allowed", "domain", urlParsed.Host)
- 		s.respondWithError(w, r, localizer.T("redirect_domain_not_allowed"), "")
++	// Both redirects below go to redir: the retry of a missing test cookie
++	// and the one after a solved challenge.
++	if err == nil && !redirectAllowed(r, redirURL, s.opts.RedirectDomains) {
++		err = ErrRedirectDomainNotAllowed
++	}
+ 	if err != nil {
+ 		s.rejectRedirect(w, r, err)
  		return
 --- /dev/null
 +++ b/lib/redirect_same_host_test.go
-@@ -0,0 +1,57 @@
+@@ -0,0 +1,146 @@
 +package lib
 +
 +import (
++	"net/http"
 +	"net/http/httptest"
 +	"net/url"
++	"strings"
 +	"testing"
++
++	"github.com/TecharoHQ/anubis"
++	"github.com/TecharoHQ/anubis/internal"
 +)
 +
 +// TestRedirectAllowed makes sure that, while REDIRECT_DOMAINS is empty,
@@ -124,6 +153,7 @@ Last-Update: 2026-10-02
 +		{name: "a name not in /etc/hosts", host: "unlisted.keel.test", proto: "https", redir: "https://unlisted.keel.test/", want: true},
 +		{name: "same IPv4", host: "10.0.3.86", proto: "https", redir: "https://10.0.3.86/", want: true},
 +		{name: "same IPv6 literal", host: "[fd42:b2:0:1::6554]", proto: "https", redir: "https://[fd42:b2:0:1::6554]/x", want: true},
++		{name: "same IPv6 literal, default port written", host: "[fd42:b2:0:1::6554]", proto: "https", redir: "https://[fd42:b2:0:1::6554]:443/", want: true},
 +		{name: "other IPv6 literal", host: "[fd42:b2:0:1::6554]", proto: "https", redir: "https://[2001:db8::1]/", want: false},
 +		{name: "other host", host: "web.example.org", proto: "https", redir: "https://evil.example/", want: false},
 +		{name: "scheme-relative other host", host: "web.example.org", proto: "https", redir: "//evil.example/", want: false},
@@ -132,6 +162,7 @@ Last-Update: 2026-10-02
 +		{name: "other port", host: "web.example.org", proto: "https", redir: "https://web.example.org:8443/", want: false},
 +		{name: "other scheme", host: "web.example.org", proto: "https", redir: "http://web.example.org/", want: false},
 +		{name: "no X-Forwarded-Proto is http", host: "web.example.org", proto: "", redir: "http://web.example.org/", want: true},
++		{name: "no Host header", host: "", proto: "https", redir: "https://web.example.org/", want: false},
 +		{name: "a scheme with no host", host: "web.example.org", proto: "https", redir: "https:/page", want: false},
 +		{name: "REDIRECT_DOMAINS allows a listed host", host: "web.example.org", proto: "https", redir: "https://other.example/", domains: []string{"other.example"}, want: true},
 +		{name: "REDIRECT_DOMAINS refuses the request's own host when unlisted", host: "web.example.org", proto: "https", redir: "https://web.example.org/", domains: []string{"other.example"}, want: false},
@@ -148,6 +179,88 @@ Last-Update: 2026-10-02
 +			}
 +			if got := redirectAllowed(req, redir, tt.domains); got != tt.want {
 +				t.Errorf("redirectAllowed(Host %q, %q) = %v, want %v", tt.host, tt.redir, got, tt.want)
++			}
++		})
++	}
++}
++
++// TestPassChallengeRedirectsToOwnOriginOnly drives pass-challenge with
++// REDIRECT_DOMAINS empty, through both of its redirects to redir: the one
++// after a solved challenge (verification cookie present) and the retry of
++// a missing verification cookie. Another host is refused with 400 before
++// either redirect, and no auth cookie is set; the request's own origin
++// and a relative path are followed.
++func TestPassChallengeRedirectsToOwnOriginOnly(t *testing.T) {
++	for _, tt := range []struct {
++		name       string
++		host       string // Host header; empty is the test server's own
++		proto      string
++		redir      string // "SELF" is replaced by http://<test server host>
++		withCookie bool
++		wantStatus int
++	}{
++		{name: "solved, relative", redir: "/page", withCookie: true, wantStatus: http.StatusFound},
++		{name: "solved, own origin", redir: "SELF/page", withCookie: true, wantStatus: http.StatusFound},
++		{name: "solved, other host", redir: "http://evil.example/", withCookie: true, wantStatus: http.StatusBadRequest},
++		{name: "solved, own host by another port", redir: "http://127.0.0.1:1/", withCookie: true, wantStatus: http.StatusBadRequest},
++		{name: "solved, own IPv6 literal", host: "[fd42:b2:0:1::6554]", proto: "https", redir: "https://[fd42:b2:0:1::6554]/x", withCookie: true, wantStatus: http.StatusFound},
++		{name: "solved, other IPv6 literal", host: "[fd42:b2:0:1::6554]", proto: "https", redir: "https://[2001:db8::1]/", withCookie: true, wantStatus: http.StatusBadRequest},
++		{name: "retry, own origin", redir: "SELF/page", wantStatus: http.StatusFound},
++		{name: "retry, other host", redir: "http://evil.example/", wantStatus: http.StatusBadRequest},
++		{name: "retry, other IPv6 literal", host: "[fd42:b2:0:1::6554]", proto: "https", redir: "https://[2001:db8::1]/", wantStatus: http.StatusBadRequest},
++	} {
++		t.Run(tt.name, func(t *testing.T) {
++			srv := spawnAnubis(t, Options{Next: http.NewServeMux(), Policy: loadPolicies(t, "testdata/zero_difficulty.yaml", 0)})
++			ts := httptest.NewServer(internal.RemoteXRealIP(true, "tcp", srv))
++			t.Cleanup(ts.Close)
++
++			c := makeChallenge(t, ts, httpClient(t))
++			redir := strings.Replace(tt.redir, "SELF", ts.URL, 1)
++
++			q := url.Values{}
++			q.Set("id", c.ID)
++			q.Set("response", internal.SHA256sum(c.Challenge+"0"))
++			q.Set("nonce", "0")
++			q.Set("redir", redir)
++			q.Set("elapsedTime", "420")
++
++			req, err := http.NewRequest(http.MethodGet, ts.URL+"/.within.website/x/cmd/anubis/api/pass-challenge?"+q.Encode(), nil)
++			if err != nil {
++				t.Fatalf("can't make request: %v", err)
++			}
++			req.Header.Set("User-Agent", "Mozilla/5.0")
++			if tt.host != "" {
++				req.Host = tt.host
++			}
++			if tt.proto != "" {
++				req.Header.Set("X-Forwarded-Proto", tt.proto)
++			}
++			if tt.withCookie {
++				req.AddCookie(&http.Cookie{Name: srv.cookieName(anubis.TestCookieName), Value: c.ID})
++			}
++
++			cli := &http.Client{
++				CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
++			}
++			resp, err := cli.Do(req)
++			if err != nil {
++				t.Fatalf("can't do request: %v", err)
++			}
++			t.Cleanup(func() { _ = resp.Body.Close() })
++
++			if resp.StatusCode != tt.wantStatus {
++				t.Fatalf("redir %q: wanted status %d, got %d", redir, tt.wantStatus, resp.StatusCode)
++			}
++			gotAuth := authCookie(srv, resp) != nil
++			if wantAuth := tt.withCookie && tt.wantStatus == http.StatusFound; gotAuth != wantAuth {
++				t.Fatalf("redir %q: wanted auth cookie %v, got %v", redir, wantAuth, gotAuth)
++			}
++			if tt.wantStatus == http.StatusFound {
++				if loc := resp.Header.Get("Location"); loc != redir {
++					t.Fatalf("redir %q: redirected to %q", redir, loc)
++				}
++			} else if loc := resp.Header.Get("Location"); loc != "" {
++				t.Fatalf("redir %q: refused, yet redirected to %q", redir, loc)
 +			}
 +		})
 +	}

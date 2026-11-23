@@ -1,3 +1,58 @@
+anubis (1.28.2-0+keel1) trixie; urgency=medium
+
+  * New upstream release 1.28.2, from upstream's signed
+    anubis-src-vendor-1.28.2.tar.gz (tag v1.28.2, signed). Security fixes
+    since 1.27.0:
+    - GHSA-5gwm-367w-7fgj (1.28.0): a client that controls the PTR
+      records of its address could pass as a search engine crawler with
+      several PTR records; reverse DNS is now forward-confirmed.
+    - #1989 (1.28.0): the hardening of upstream's security review: path
+      traversal in path rules, duplicate headers, query strings in
+      forwarded URIs, JA4H set by the client, solutions bound to the
+      issuing rule, DNSBL IPv6 answers and caching, no caching of
+      challenge and error pages by CDNs, short HS512 secrets, malformed
+      client addresses, honeypot log permissions, and more.
+    - #1947 (1.28.0): redirect validation shared between pass-challenge
+      and the subrequest mode; ambiguous redir forms are refused.
+    - Go 1.27.3 or newer (CVE-2026-111943, upstream's changelog).
+    Behaviour changes that reach Keel: a request with no or an empty
+    User-Agent is denied ((data)/bots/spec-violations.yaml); the default
+    policy denies domain fronting (X-Tls-Sni-Name other than Host); Thoth
+    is gone (THOTH_* only warn); a missing verification cookie is retried
+    once (#2004).
+  * The WebAssembly proof-of-work modules that 1.28 needs at start come
+    from upstream's signed anubis-src-vendor-npm-1.28.2.tar.gz, as the new
+    gbp component wasm-modules/, checked against wasm-modules/SHA256SUMS;
+    they cannot be built with trixie and trixie-backports today
+    (debian/README.source). The wasm2js fallback is built here with
+    upstream's binaryen 130 in the source, run by the vendored wazero.
+    debian/copyright lists the licences of the crates in the modules
+    (hashx and equix are LGPL-3.0-only, wee_alloc MPL-2.0).
+  * npm component refreshed from the 1.28.2 package-lock.json: preact
+    10.29.8, and wasm-feature-detect 1.9.0 (new).
+  * Build with golang-1.27-go from trixie-backports.
+  * Patches:
+    - challenge-without-gzip.patch: rebased. 1.28.0 (#1958) answers the
+      sampled refusal with the policy's DENY status, which is 200 in
+      Keel's policy, so the test now checks the body as well.
+    - redir-same-host.patch: rewritten for 1.28. Upstream's
+      validateRedirect stays as it is; PassChallenge then also asks
+      redirectAllowed, before both of its redirects (after a solved
+      challenge, and the retry of a missing verification cookie). The
+      subrequest mode is not changed. New test
+      TestPassChallengeRedirectsToOwnOriginOnly.
+    - redir-validate.patch: dropped, upstream's validateRedirect (#1947,
+      1.28.0) has the same checks and tests /%2Fevil.com, /%2F%2Fevil.com
+      and /%5Cevil.com.
+    - keep-cookie-of-request-without-cookie.patch: dropped, upstream made
+      the same fix (#1828, issue #1314, 1.28.0).
+    - redirect-domains-ipv6.patch: dropped, Keel Web leaves
+      REDIRECT_DOMAINS empty since 1.27.0-0+keel3 and nothing in Keel
+      sets it. An IPv6 literal in REDIRECT_DOMAINS again stops anubis at
+      start, as upstream does.
+
+ -- Marcos Méndez <mendez.foto@gmail.com>  Mon, 23 Nov 2026 18:00:00 +0000
+
 anubis (1.27.0-0+keel4) trixie; urgency=medium
 
   * Do not clear the auth cookie in the answer to a request that sent

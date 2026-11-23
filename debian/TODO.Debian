@@ -37,3 +37,14 @@ What the keel/trixie branch answers, and what it does not:
 * go dependencies: NOT done the Debian way. This build uses upstream's
   vendor/ and golang-1.26-go from trixie-backports; Debian would package
   the missing modules and build with dh-golang.
+
+Since 1.28 (keel/trixie, 2026-11-23):
+
+* The WebAssembly proof-of-work modules (wasm-modules/) are upstream's
+  builds, not built from source: Debian needs a Rust for wasm32 whose
+  standard library matches rustc, the crates hashx, equix, hybrid-array
+  and digest/sha2 0.11, and binaryen 130 (debian/README.source).
+* hashx.wasm contains hashx and equix (LGPL-3.0-only), and every module
+  wee_alloc and memory_units (MPL-2.0). Their sources are not in this
+  source package; Debian would need them (as packaged crates or a
+  vendored component) to build and to distribute the modules.

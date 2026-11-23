@@ -10,14 +10,14 @@ upstream     upstream imports; its history includes upstream's git history
 keel/trixie  this package, built for the Keel repository
 
 The layout is DEP-14's, with the tags upstream/<version> and
-keel/<debian-version>. `gbp buildpackage` builds both orig tarballs from
+keel/<debian-version>. `gbp buildpackage` builds the three orig tarballs from
 the upstream/<version> tag (there is no pristine-tar branch: the npm
 component is assembled, not released), and `dpkg-buildpackage -b` from a
 clone of keel/trixie works too, since the upstream branch carries
 everything the build reads.
 
-Upstream tarball and the npm component
---------------------------------------
+Upstream tarball and its two components
+---------------------------------------
 
 The main tarball is upstream's anubis-src-vendor-VERSION.tar.gz from the
 GitHub release, which already contains vendor/ (go mod vendor), signed
@@ -26,20 +26,94 @@ with the key in debian/upstream/signing-key.asc:
   gpgv --keyring debian/upstream/signing-key.asc \
       anubis-src-vendor-VERSION.tar.gz.asc anubis-src-vendor-VERSION.tar.gz
 
-The npm component (npm/, the "npm" component of gbp.conf) holds the
-runtime JavaScript dependencies that esbuild bundles into the challenge
-pages; nothing from npm/ is installed as is. They are the closure of
-"preact" and "@aws-crypto/sha256-js" in package-lock.json:
+Its tree is upstream's signed tag vVERSION plus vendor/ and doc/; gbp
+import-orig --upstream-vcs-tag=vVERSION records the tag as the second
+parent of the import commit.
+
+For 1.28.2 (checked 2026-11-23):
+
+  anubis-src-vendor-1.28.2.tar.gz
+    sha256 f3cd582af433839947a2be596a74269ebe888697d96b675ed3fc184aa2edeef1
+    good signature, key 833F64161167B501058C394756375DA2DF02ABFF
+  tag v1.28.2 -> commit a1384fbf42e331652b6f5cc89fdbcdc255d25b8e,
+    tag and commit signed with the same key; the tarball outside
+    vendor/ and doc/ is that commit's tree, file for file
+  anubis-src-vendor-npm-1.28.2.tar.gz (source of wasm-modules/)
+    sha256 524faa5da63fe45ccc8f070cd8bb12c2ac98599ed4832a17b42c2d09c19c66c2
+    good signature, same key
+
+The sha256 values are also those that GitHub's release API gives for
+the assets.
+
+npm/ (the "npm" component of gbp.conf) holds the runtime JavaScript
+dependencies that esbuild bundles into the challenge pages; nothing from
+npm/ is installed as is. They are the closure of "preact",
+"@aws-crypto/sha256-js" and "wasm-feature-detect" in package-lock.json:
 
   preact, @aws-crypto/sha256-js, @aws-crypto/util, @aws-sdk/types,
   @smithy/is-array-buffer, @smithy/types, @smithy/util-buffer-from,
-  @smithy/util-utf8, tslib
+  @smithy/util-utf8, tslib, wasm-feature-detect
 
 To refresh it for a new upstream version, download each "resolved" URL of
 package-lock.json, check it against its "integrity" (sha512, base64), and
 unpack each tarball's package/ directory into npm/<name>. The development
 dependencies (esbuild, postcss, cssnano, playwright, ...) are not needed:
-esbuild comes from Debian and the CSS is bundled with esbuild.
+esbuild comes from Debian and the CSS is bundled with esbuild. For 1.28.2
+the sha256 of each npm tarball:
+
+  5750638b4fb1e159e2a6eff84532d285511db49eeef2f698d6f8484d42e4a96a  @aws-crypto/sha256-js 5.2.0
+  42aa9abd7adb5928b922e009433f46df0613a57f18bace8dbfb43cd1d0f772d3  @aws-crypto/util 5.2.0
+  85c1c02cb4836e2911f9fbcc7c9e4f3fb14593f4442112aa1a455e7aa980bf82  @aws-sdk/types 3.840.0
+  34f42607b0756d7ac1251cbb89f24a92a7cb1511c6a23975ddd91fea2d6ef7bd  @smithy/is-array-buffer 2.2.0
+  03276b98544e9f9110d08a58bd8a7f5b6c01db1052ff64086d394294d8aa2c42  @smithy/types 4.3.1
+  25141bd3368b188c51e4de6380f74143e11ae93006b90d661971b3684174b1f8  @smithy/util-buffer-from 2.2.0
+  b137f56c3a32a49c883d0332e1c14bf413f5d7020395c650035b1f4ea2fa021a  @smithy/util-utf8 2.3.0
+  b18cb0a457f3d43c7bb30391a74ade7d13e03bc6e77915e061c70c0fe1123299  preact 10.29.8
+  66f635d5eeabae44807534976913a102cf615b9a045368359c9f79ae6ee2119e  tslib 2.8.1
+  c56c60a94f74cde3fd08abc609fc9ef97683b501acd40c2bc7eaf5ad2632c5b3  wasm-feature-detect 1.9.0
+
+wasm-modules/ (the "wasm-modules" component) holds the six WebAssembly
+proof-of-work modules, baseline/ and simd128/ for argon2id, hashx and
+sha256, copied unchanged from web/static/wasm/ of upstream's signed
+anubis-src-vendor-npm-VERSION.tar.gz; wasm-modules/SHA256SUMS lists them
+and debian/rules checks them against it. They are required at run time:
+web/embed.go embeds web/static, and at start lib/config.go runs Setup for
+every challenge method, which loads static/wasm/simd128/<method>.wasm (the
+server validates those challenges by running the module with wazero).
+Without them anubis does not start, even with a policy that uses none of
+these methods.
+
+Why upstream's build and not Keel's: building them from source with
+trixie and trixie-backports does not work today.
+- Rust for wasm32: trixie-backports has rustc and cargo 1.96.1 but
+  libstd-rust-dev-wasm32 only 1.94.1 or 1.93.1, and the standard library
+  must come from the same rustc. Trixie's own 1.85.1 matches, but the
+  build-dependency resolution of the CI and of a plain backports build
+  would then need pinning.
+- The crates: hashx, equix and hybrid-array are not in Debian, and
+  digest and sha2 are at 0.10 where Cargo.lock needs 0.11; a vendored
+  crates component from crates.io would be needed.
+- wasm-opt and wasm2js: wasm/scripts/build_wasm.sh re-encodes every
+  module with wasm-opt for old browsers, and build_wasm2js.sh needs
+  binaryen 130; trixie has binaryen 120, which upstream says is too old.
+  Both scripts end at upstream's prebuilt utils/wasm/wasm2js/*_130.wasm
+  in any case.
+So the modules would be built from upstream's sources with an upstream
+prebuilt tool either way. The modules from the signed tarball are used
+instead, and the change is one step: when Debian has a matching Rust for
+wasm32 and binaryen 130, wasm-modules/ can go and debian/rules can run
+build_wasm.sh.
+
+The other generated files are built here: web/js/gen/wasm2js/*.wasm.js
+by wasm/scripts/build_wasm2js.sh from the baseline modules, with
+upstream's binaryen 130 build in the source (utils/wasm/wasm2js/
+wasm2js_130.wasm, Apache-2.0) run by the vendored wazero
+(utils/cmd/wazero-exec); and all JavaScript and CSS with esbuild.
+
+Licences of the modules (debian/copyright): hashx.wasm contains hashx
+and equix, LGPL-3.0-only; every module contains wee_alloc and
+memory_units, MPL-2.0. The sources of those crates are not in this
+source package (debian/TODO.Debian).
 
 Generated files
 ---------------

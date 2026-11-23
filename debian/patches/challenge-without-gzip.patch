@@ -1,41 +1,125 @@
 Description: Serve the challenge to clients that do not accept gzip
- RenderIndex refused one challenged request in 64, at random, when the
- client did not list gzip in Accept-Encoding, with HTTP 500 and the page
- "client_error_browser". A client without Accept-Encoding accepts any
- coding (RFC 9110, section 12.5.3), and real clients send none: curl by
- default, some accessibility and archiving tools, proxies that strip the
- header. They got a server error at random while the proof of work, the
- actual defence, was never reached. Keel Web saw it on its own test
- client (Keel-Linux/keel-web#2).
+ RenderIndex refuses one challenged request in 64, at random, when the
+ client does not list gzip in Accept-Encoding: it answers with the page
+ "client_error_browser" at the policy's DENY status (HTTP 500 before
+ 1.28.0). A client without Accept-Encoding accepts any coding (RFC 9110,
+ section 12.5.3), and real clients send none: curl by default, some
+ accessibility and archiving tools, proxies that strip the header. They
+ get an error page at random while the proof of work, the actual defence,
+ is never reached. Keel Web saw it on its own test client
+ (Keel-Linux/keel-web#2). Keel's policy gives DENY the status 200, so on
+ 1.28 such a client gets an error page with HTTP 200.
  .
  Upstream history: the sampled refusal came with #501 ("ensure that
  clients store cookies", https://github.com/TecharoHQ/anubis/pull/501);
- #1958 (https://github.com/TecharoHQ/anubis/pull/1958, merged after
- 1.27.0) changed its answer from 500 to the policy's DENY status and
- logged it at INFO, and left the sampling itself open: its commit says
- "whether the rejection should be sampled needs its own discussion".
- Keel drops it rather than take #1958: a refusal at DENY status is still
- an error page instead of the challenge for a legitimate client, and the
- heuristic stops no scraper that sends "Accept-Encoding: gzip", which
- costs nothing. The proof of work is the real defence, and every client
- without gzip still has to solve it. Not forwarded yet: it belongs in the
- sampling discussion that #1958 leaves open, where Keel will raise it.
+ #1958 (https://github.com/TecharoHQ/anubis/pull/1958, in 1.28.0)
+ changed its answer from 500 to the policy's DENY status and logged it at
+ INFO, and left the sampling itself open: its commit says "whether the
+ rejection should be sampled needs its own discussion". The sampling is
+ still in 1.28.2. The heuristic stops no scraper that sends
+ "Accept-Encoding: gzip", which costs nothing; every client without gzip
+ still has to solve the proof of work.
  .
  This patch drops the sampled refusal, so such a client gets the
  challenge every time, and adds a test that 4096 requests without gzip,
- with identity and with br are all challenged. The test
- TestChallengeFor_ErrNotFound, skipped as flaky by debian/rules because of
- this refusal, runs again.
+ with identity and with br, all get the challenge page (status and body:
+ the body, because a policy may give the refusal the same status). It
+ removes upstream's TestNonGzipClientGetsDenyStatus (#1958), which
+ asserts the opposite: that at least one of 4096 such requests is
+ refused, and that the refusal is logged at INFO. With the refusal gone
+ there is nothing for that test to check; the new test is its inverse.
+ .
+ Keel-only for now; upstreamable as a question, not as a pull request:
+ upstream keeps the check on purpose. It can be dropped when upstream
+ removes the sampling or makes it optional, or when Keel Web adds
+ "Accept-Encoding: gzip" in front of Anubis and a real test shows that
+ curl gets the challenge every time.
 Author: Marcos Mendez <mendez.foto@gmail.com>
 Bug: https://github.com/Keel-Linux/keel-web/issues/2
 Bug-Upstream: https://github.com/TecharoHQ/anubis/issues/1009
 Forwarded: no
-Last-Update: 2026-10-02
+Last-Update: 2026-11-23
 ---
 --- a/lib/anubis_test.go
 +++ b/lib/anubis_test.go
-@@ -845,6 +845,38 @@ func TestStripBasePrefixFromRequest(t *testing.T) {
+@@ -732,75 +732,6 @@ func TestCustomStatusCodes(t *testing.T)
  	}
+ }
+ 
+-func TestNonGzipClientGetsDenyStatus(t *testing.T) {
+-	pol := loadPolicies(t, "testdata/aggressive_403.yaml", 0)
+-
+-	srv := spawnAnubis(t, Options{
+-		Next:   http.NewServeMux(),
+-		Policy: pol,
+-	})
+-
+-	var logs bytes.Buffer
+-	srv.logger = slog.New(slog.NewJSONHandler(&logs, &slog.HandlerOptions{Level: slog.LevelInfo}))
+-
+-	const requests = 4096
+-
+-	var challenged, denied int
+-
+-	for i := 0; i < requests; i++ {
+-		req := httptest.NewRequest("GET", "http://example.com/", nil)
+-		req.Header.Set("X-Real-IP", "127.0.0.1")
+-		req.Header.Set("User-Agent", "CHALLENGE")
+-		req.Header.Set("Accept-Encoding", "br")
+-
+-		w := httptest.NewRecorder()
+-		srv.maybeReverseProxyOrPage(w, req)
+-
+-		switch w.Code {
+-		case pol.StatusCodes.Challenge:
+-			challenged++
+-		case pol.StatusCodes.Deny:
+-			denied++
+-		default:
+-			t.Fatalf("request %d: got status %d, wanted %d (challenge) or %d (deny)", i, w.Code, pol.StatusCodes.Challenge, pol.StatusCodes.Deny)
+-		}
+-	}
+-
+-	t.Logf("%d of %d requests were challenged, %d were rejected", challenged, requests, denied)
+-
+-	if denied == 0 {
+-		t.Fatalf("no request out of %d was rejected, the one in 64 gzip check never fired", requests)
+-	}
+-
+-	const rejectionMessage = "client was given a challenge but does not in fact support gzip compression"
+-
+-	var logged int
+-
+-	for _, line := range strings.Split(logs.String(), "\n") {
+-		if !strings.Contains(line, rejectionMessage) {
+-			continue
+-		}
+-
+-		logged++
+-
+-		var record struct {
+-			Level string `json:"level"`
+-		}
+-
+-		if err := json.Unmarshal([]byte(line), &record); err != nil {
+-			t.Fatalf("can't parse log line %q: %v", line, err)
+-		}
+-
+-		if record.Level != slog.LevelInfo.String() {
+-			t.Errorf("rejection was logged at %s, wanted %s", record.Level, slog.LevelInfo)
+-		}
+-	}
+-
+-	if logged != denied {
+-		t.Errorf("%d requests were rejected but %d rejections were logged", denied, logged)
+-	}
+-}
+-
+ func assertHeaderValues(t *testing.T, header http.Header, name string, want ...string) {
+ 	t.Helper()
+ 
+@@ -1083,6 +1014,43 @@ func TestCookieSuffixIsSet(t *testing.T)
+ 	})
  }
  
 +// TestNonGzipClientGetsChallenge makes sure that a client which does not
@@ -66,6 +150,11 @@ Last-Update: 2026-10-02
 +			if w.Code != pol.StatusCodes.Challenge {
 +				t.Fatalf("Accept-Encoding %q, request %d: got status %d, wanted %d (challenge)", encoding, i, w.Code, pol.StatusCodes.Challenge)
 +			}
++			// The status alone does not tell the challenge from the refusal
++			// when a policy gives both the same status code.
++			if !strings.Contains(w.Body.String(), "anubis_challenge") {
++				t.Fatalf("Accept-Encoding %q, request %d: the answer is not the challenge page", encoding, i)
++			}
 +		}
 +	}
 +}
@@ -83,7 +172,7 @@ Last-Update: 2026-10-02
  	"net/http"
  	"net/url"
  	"regexp"
-@@ -167,10 +166,6 @@ func (t UnixRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
+@@ -223,10 +222,6 @@ func (t UnixRoundTripper) RoundTrip(req
  	return t.Transport.RoundTrip(req)
  }
  
@@ -94,13 +183,13 @@ Last-Update: 2026-10-02
  // XXX(Xe): generated by ChatGPT
  func rot13(s string) string {
  	rotated := make([]rune, len(s))
-@@ -228,12 +223,6 @@ func (s *Server) RenderIndex(w http.ResponseWriter, r *http.Request, cr policy.C
+@@ -302,12 +297,6 @@ func (s *Server) RenderIndex(w http.Resp
  
  	lg, r := s.getRequestLogger(r)
  
 -	if !strings.Contains(r.Header.Get("Accept-Encoding"), "gzip") && randomChance(64) {
--		lg.ErrorContext(r.Context(), "client was given a challenge but does not in fact support gzip compression")
--		s.respondWithError(w, r, localizer.T("client_error_browser"), "")
+-		lg.InfoContext(r.Context(), "client was given a challenge but does not in fact support gzip compression")
+-		s.respondWithStatus(w, r, localizer.T("client_error_browser"), "", s.policy.StatusCodes.Deny)
 -		return
 -	}
 -

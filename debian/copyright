@@ -3,11 +3,12 @@ Source: https://github.com/TecharoHQ/anubis
 Upstream-Name: anubis
 Upstream-Contact: Xe Iaso <me@xeiaso.net>
 Comment: The source is upstream's anubis-src-vendor tarball, which carries
- the Go modules under vendor/, plus the npm component under npm/ (the
- runtime JavaScript dependencies of the challenge pages, from the npm
- registry). The vendor/ licences below were classified from each module's
- LICENSE file; many vendored modules are upstream's development tools and
- are not linked into the binaries.
+ the Go modules under vendor/, plus two components: npm/ (the runtime
+ JavaScript dependencies of the challenge pages, from the npm registry)
+ and wasm-modules/ (upstream's compiled WebAssembly proof-of-work
+ modules, debian/README.source). The vendor/ licences below were
+ classified from each module's LICENSE file; many vendored modules are
+ upstream's development tools and are not linked into the binaries.
 
 Files: *
 Copyright: 2025-2026 Xe Iaso <me@xeiaso.net>
@@ -46,11 +47,40 @@ Files: npm/tslib/*
 Copyright: Microsoft Corporation
 License: 0BSD
 
+Files: npm/wasm-feature-detect/*
+Copyright: Google Inc.
+License: Apache-2.0
+
+Files: utils/wasm/wasm2js/*.wasm
+Copyright: WebAssembly Community Group participants (binaryen)
+           the authors of wasi-sdk, wasi-libc and LLVM's libc++
+License: Apache-2.0
+Comment: binaryen 130 (wasm2js, wasm-opt) compiled by upstream to WASI
+ with wasi-sdk 34 (utils/wasm/wasm2js/build.sh). The build runs
+ wasm2js_130.wasm with the vendored wazero; nothing of it is installed.
+ binaryen is Apache-2.0; wasi-sdk's libc++ is Apache-2.0 with LLVM
+ exceptions and wasi-libc is under several permissive licences.
+
+Files: wasm-modules/*
+Copyright: 2025-2026 Xe Iaso <me@xeiaso.net>
+           2025-2026 Techaro
+           the authors of each Rust crate they are compiled from
+License: Expat and LGPL-3.0 and MPL-2.0 and BSD-3-clause and (Expat or Apache-2.0)
+Comment: Compiled by upstream from wasm/ (Expat) with the crates of
+ Cargo.lock, which this source does not carry. The licences are those
+ that crates.io states for the crates that wasm/ uses on wasm32:
+ hashx 0.8.0 and equix 0.6.2 (LGPL-3.0-only, in hashx.wasm only),
+ wee_alloc 0.4.5 and memory_units 0.4.0 (MPL-2.0, the allocator of every
+ module), subtle 2.6.1 (BSD-3-Clause), and argon2, blake2, sha2, digest
+ and the other RustCrypto crates (MIT or Apache-2.0). The modules are
+ embedded in /usr/bin/anubis and served to browsers.
+ See debian/README.source.
+
 Files: vendor/*
 Copyright: the authors of each module, as stated in its LICENSE file
 License: Expat
 
-Files: vendor/buf.build/gen/go/bufbuild/protovalidate/protocolbuffers/go/*
+Files: vendor/cel.dev/cel-go/*
        vendor/cel.dev/expr/*
        vendor/github.com/Masterminds/goutils/*
        vendor/github.com/aws/*
@@ -61,13 +91,10 @@ Files: vendor/buf.build/gen/go/bufbuild/protovalidate/protocolbuffers/go/*
        vendor/github.com/fahedouch/go-logrotate/*
        vendor/github.com/go-git/go-billy/v5/*
        vendor/github.com/go-git/go-git/v5/*
-       vendor/github.com/go-jose/go-jose/v3/*
        vendor/github.com/go-logr/*
        vendor/github.com/golang/groupcache/*
-       vendor/github.com/google/cel-go/*
        vendor/github.com/google/pprof/*
        vendor/github.com/google/rpmpack/*
-       vendor/github.com/grpc-ecosystem/*
        vendor/github.com/klauspost/compress/*
        vendor/github.com/moby/*
        vendor/github.com/opencontainers/*
@@ -75,6 +102,7 @@ Files: vendor/buf.build/gen/go/bufbuild/protovalidate/protocolbuffers/go/*
        vendor/github.com/prometheus/*
        vendor/github.com/skeema/knownhosts/*
        vendor/github.com/spf13/afero/*
+       vendor/github.com/tetratelabs/wazero/*
        vendor/github.com/tklauser/numcpus/*
        vendor/github.com/xanzy/ssh-agent/*
        vendor/go.opentelemetry.io/*
@@ -94,7 +122,6 @@ Files: vendor/github.com/antlr4-go/antlr/v4/*
        vendor/github.com/go-sourcemap/sourcemap/*
        vendor/github.com/magiconair/properties/*
        vendor/github.com/pkg/errors/*
-       vendor/github.com/pmezard/go-difflib/*
        vendor/github.com/redis/go-redis/v9/*
        vendor/github.com/russross/blackfriday/v2/*
        vendor/github.com/ulikunitz/xz/*
@@ -110,6 +137,7 @@ Files: vendor/dario.cat/mergo/*
        vendor/github.com/facebookgo/flagenv/*
        vendor/github.com/fsnotify/fsnotify/*
        vendor/github.com/go-git/gcfg/*
+       vendor/github.com/gofrs/flock/*
        vendor/github.com/google/go-github/v70/*
        vendor/github.com/google/go-querystring/*
        vendor/github.com/google/uuid/*
@@ -118,6 +146,7 @@ Files: vendor/dario.cat/mergo/*
        vendor/github.com/pierrec/lz4/v4/*
        vendor/github.com/shirou/gopsutil/v4/*
        vendor/github.com/tklauser/go-sysconf/*
+       vendor/go4.org/netipx/*
        vendor/golang.org/x/*
        vendor/google.golang.org/protobuf/*
        vendor/mvdan.cc/sh/v3/*
@@ -125,9 +154,14 @@ Files: vendor/dario.cat/mergo/*
 Copyright: the authors of each module, as stated in its LICENSE file
 License: BSD-3-clause
 
-Files: vendor/github.com/davecgh/go-spew/*
-Copyright: 2012-2016 Dave Collins <dave@davec.name>
+Files: vendor/github.com/oschwald/maxminddb-golang/v2/*
+Copyright: the authors of the module, as stated in its LICENSE file
 License: ISC
+
+Files: vendor/github.com/maxmind/geoipupdate/v8/*
+       vendor/github.com/maxmind/mmdbwriter/*
+Copyright: MaxMind, Inc.
+License: Apache-2.0 or Expat
 
 Files: vendor/github.com/hashicorp/go-version/*
 Copyright: HashiCorp, Inc.
@@ -249,3 +283,11 @@ License: 0BSD
  WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
  ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
  OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+
+License: LGPL-3.0
+ This library is free software; you can redistribute it and/or modify it
+ under the terms of the GNU Lesser General Public License as published by
+ the Free Software Foundation, version 3.
+ .
+ On Debian systems, the complete text of the GNU Lesser General Public
+ License version 3 can be found in "/usr/share/common-licenses/LGPL-3".

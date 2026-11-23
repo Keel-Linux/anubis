@@ -90,9 +90,10 @@ get() { # get NAME UA [CLIENT_IP]: body to $WORK/NAME, prints the status
 }
 
 # A client that does not accept gzip gets the challenge every time.
-# Upstream refused one such request in 64 at random with HTTP 500
-# (Keel-Linux/keel-web#2); 512 of them all passing that way had a chance
-# of 1 in 3000.
+# Upstream refuses one such request in 64 at random (Keel-Linux/keel-web#2),
+# since 1.28.0 with the policy's DENY status, which is 200 in the shipped
+# policy: so the body is checked, not only the status. 512 of them all
+# passing without challenge-without-gzip.patch had a chance of 1 in 3000.
 i=0
 while [ "$i" -lt 512 ]; do
     code=$(curl -sS -o "$WORK/no-gzip" -w '%{http_code}' -A "$BROWSER" \
@@ -133,8 +134,9 @@ for path in /.within.website/x/cmd/anubis/static/js/main.mjs \
 done
 
 # pass-challenge with REDIRECT_DOMAINS empty (default.env): redir only to
-# the origin of the request, whatever name it came by. The check runs
-# before the challenge is looked up, so a made-up challenge tells the two
+# the origin of the request, whatever name it came by
+# (redir-same-host.patch). The check runs before the challenge is looked
+# up, so a made-up challenge tells the two
 # apart: a refused redir says "Redirect domain not allowed", an allowed
 # one goes on and fails on the challenge. The test cookie is Secure,
 # which curl keeps from plain HTTP, so it is sent by hand.
@@ -175,7 +177,8 @@ refused unlisted.keel.test http://unlisted.keel.test@evil.example/
 refused '[fd42:b2:0:1::6554]' 'http://[2001:db8::1]/'
 
 # redir forms a browser resolves to another host though Go sees no host
-# in them: refused as "Invalid redirect" (redir-validate.patch)
+# in them: refused as "Invalid redirect" (upstream's validateRedirect,
+# 1.28.0; before, Keel's redir-validate.patch)
 invalid() {
     pass_challenge "$1" "$2"
     grep -q 'Invalid redirect' "$WORK/pass" \

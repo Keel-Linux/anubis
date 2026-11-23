@@ -2,9 +2,10 @@
 
 include /usr/share/dpkg/pkg-info.mk
 
-# Go 1.26 or newer is required by go.mod; trixie has it in trixie-backports
-# (golang-1.26-go), which installs under /usr/lib/go-1.26.
-export PATH := /usr/lib/go-1.26/bin:$(PATH)
+# Go 1.27.3 or newer is required by go.mod; trixie has it in
+# trixie-backports (golang-1.27-go), which installs under /usr/lib/go-1.27.
+# _build/shim holds the wasm2js wrapper (override_dh_auto_build).
+export PATH := $(CURDIR)/_build/shim:/usr/lib/go-1.27/bin:$(PATH)
 
 # Never fetch: every Go module is in vendor/ and every JavaScript
 # dependency is in npm/ (the npm component of the source).
@@ -13,6 +14,7 @@ export GOPROXY := off
 export GOFLAGS := -mod=vendor -trimpath -buildvcs=false
 export GOCACHE := $(CURDIR)/_build/go-cache
 export GOPATH := $(CURDIR)/_build/gopath
+export XDG_CACHE_HOME := $(CURDIR)/_build/cache
 export CGO_ENABLED := 0
 export NODE_PATH := $(CURDIR)/npm
 export SKIP_INTEGRATION := 1
@@ -20,8 +22,8 @@ export SKIP_INTEGRATION := 1
 GO_LDFLAGS := -X 'github.com/TecharoHQ/anubis.Version=$(DEB_VERSION_UPSTREAM)'
 
 # Files the build generates outside _build, removed by clean.
-GENERATED := web/static/js web/static/locales \
-	lib/challenge/preact/static lib/challenge/proofofwork/static/js \
+GENERATED := web/static/js web/static/locales web/static/wasm \
+	web/js/gen lib/challenge/preact/static lib/challenge/challengepage/static/js \
 	xess/xess.min.css
 
 # Packages whose tests need the network, a browser or a container runtime.
@@ -33,11 +35,27 @@ TEST_SKIP := /internal/test$$|/cmd/containerbuild$$|/internal/dnsbl$$
 override_dh_auto_configure:
 
 override_dh_auto_build:
-	# Upstream's "assets" target (Makefile) without npm: go generate runs
-	# templ, stringer and the challenge build.sh scripts with trixie's
-	# esbuild; xess is built with esbuild instead of postcss and cssnano,
-	# which Debian does not have, inlining the fonts as postcss-url did.
+	# Upstream's "assets" target (Makefile) without npm and cargo: go
+	# generate runs templ, stringer and the challenge build.sh scripts with
+	# trixie's esbuild; xess is built with esbuild instead of postcss and
+	# cssnano, which Debian does not have, inlining the fonts as postcss-url
+	# did.
 	go generate ./...
+	# The WebAssembly proof-of-work modules are not built here: they come
+	# from the wasm-modules component, upstream's own build
+	# (debian/README.source). wasm2js turns the baseline ones into the
+	# JavaScript fallback for browsers without WebAssembly. It is upstream's
+	# pinned binaryen 130 build in the source (utils/wasm/wasm2js), run with
+	# the vendored wazero: the shim makes build_wasm2js.sh take that path
+	# whatever else the machine has (trixie's binaryen 120 is too old).
+	mkdir -p web/static/wasm _build/bin _build/shim
+	cp -r wasm-modules/baseline wasm-modules/simd128 web/static/wasm/
+	cd web/static/wasm && sha256sum --check --quiet ../../../wasm-modules/SHA256SUMS
+	go build -o _build/bin/wazero-exec ./utils/cmd/wazero-exec
+	printf '#!/bin/sh\nexec "%s/_build/bin/wazero-exec" "%s/utils/wasm/wasm2js/wasm2js_130.wasm" "$$@"\n' \
+		"$(CURDIR)" "$(CURDIR)" > _build/shim/wasm2js
+	chmod +x _build/shim/wasm2js
+	bash ./wasm/scripts/build_wasm2js.sh
 	./web/build.sh
 	esbuild xess/xess.css --bundle --minify --loader:.woff2=dataurl \
 		--outfile=xess/xess.min.css
@@ -59,7 +77,7 @@ override_dh_dwz:
 # dh-golang's misc:Static-Built-Using does (the modules are in vendor/,
 # part of this source).
 override_dh_gencontrol:
-	dh_gencontrol -- "-Vmisc:Static-Built-Using=$$(dpkg-query -W -f='$${source:Package} (= $${source:Version})' golang-1.26-go)"
+	dh_gencontrol -- "-Vmisc:Static-Built-Using=$$(dpkg-query -W -f='$${source:Package} (= $${source:Version})' golang-1.27-go)"
 
 # Apache-2.0, section 4(d): the NOTICE files of the vendored modules go
 # with the binaries built from them.
