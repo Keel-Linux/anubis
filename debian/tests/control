@@ -1,0 +1,8 @@
+Tests: behind-nginx
+Depends: anubis,
+         curl,
+         iproute2,
+         nginx,
+         openssl,
+         procps,
+Restrictions: needs-root, isolation-container, breaks-testbed, allow-stderr

@@ -1,0 +1,40 @@
+# Light CI on GitHub-hosted runners, for pull requests on the GitHub mirror
+# (decision 0056). The full CI is .forgejo/workflows on git.pop.coop, and
+# .forgejo/workflows/package.yml has the notes on each job.
+#
+# Jobs on Forgejo only (no GitHub-hosted version): autopkgtest.
+name: package
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    uses: keel-linux/.github/.github/workflows/github-debian-build.yml@main
+    with:
+      backports: true
+      fetch-depth: 0
+      timeout: 45
+      artifact-dir: dist
+      artifact-name: debs
+      run: |
+        apt-get update -qq
+        apt-get install -y -qq --no-install-recommends \
+          ca-certificates git git-buildpackage devscripts equivs lintian
+        # As gbp clone does: upstream's .gitattributes must not change what
+        # is exported, or the tree no longer matches the orig tarball.
+        gbp setup-gitattributes
+        git branch -f upstream origin/upstream
+        (cd /tmp && mk-build-deps --install --remove \
+          --tool 'apt-get -y -qq --no-install-recommends' /src/debian/control)
+        gbp buildpackage --git-ignore-branch \
+          --git-export-dir=/tmp/build-area \
+          --git-builder='dpkg-buildpackage -us -uc'
+        lintian --fail-on error,warning --info --display-info \
+          /tmp/build-area/*.changes
+        mkdir dist
+        cp /tmp/build-area/*.deb /tmp/build-area/*.dsc /tmp/build-area/*.tar.* \
+          /tmp/build-area/*.buildinfo /tmp/build-area/*.changes dist/

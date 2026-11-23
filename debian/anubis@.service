@@ -1,0 +1,59 @@
+[Unit]
+Description=Anubis HTTP defense proxy (instance %i)
+Documentation=file:///usr/share/doc/anubis/README.Debian
+Documentation=https://anubis.techaro.lol/docs/admin/native-install
+After=network.target
+# One instance per environment file. The signing key is a separate file,
+# root's alone; without it the start fails rather than run with a random
+# key.
+AssertPathExists=/etc/anubis/%i.env
+AssertPathExists=/etc/anubis/%i.key
+
+[Service]
+Type=exec
+EnvironmentFile=/etc/anubis/%i.env
+# The key is copied, as root, into the instance's runtime directory and
+# owned by its dynamic user. Not LoadCredential=: some container images
+# switch credentials off for every service (images.linuxcontainers.org
+# ships a generator that sets LoadCredential= empty), and Keel runs in
+# containers.
+Environment=ED25519_PRIVATE_KEY_HEX_FILE=/run/anubis/%i/signing-key
+ExecStartPre=+/bin/sh -ec 'install -m 0400 -o "$$(stat -c %%u /run/anubis/%i)" /etc/anubis/%i.key /run/anubis/%i/signing-key'
+ExecStart=/usr/bin/anubis
+Restart=on-failure
+RestartSec=5s
+LimitNOFILE=65536
+
+DynamicUser=yes
+RuntimeDirectory=anubis/%i
+RuntimeDirectoryMode=0755
+StateDirectory=anubis/%i
+CacheDirectory=anubis/%i
+UMask=0027
+
+CapabilityBoundingSet=
+AmbientCapabilities=
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectClock=yes
+ProtectHostname=yes
+ProtectKernelLogs=yes
+ProtectKernelModules=yes
+ProtectKernelTunables=yes
+ProtectControlGroups=yes
+ProtectProc=invisible
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallFilter=~@privileged @resources
+
+[Install]
+WantedBy=multi-user.target

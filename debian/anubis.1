@@ -1,0 +1,70 @@
+.TH ANUBIS 1 2026-10-01 "anubis 1.27.0" "User Commands"
+.SH NAME
+anubis \- proof-of-work HTTP proxy that challenges scraper bots
+.SH SYNOPSIS
+.B anubis
+.RI [ options ]
+.SH DESCRIPTION
+.B anubis
+is a reverse proxy. It weighs each request against a policy and either
+forwards it to the target, denies it, or answers with a challenge page
+whose JavaScript proof of work a browser solves once; the browser then
+holds a signed cookie and is forwarded.
+.PP
+Every option can also be set in the environment by its name in upper case
+with dashes as underscores, for example
+.B BIND
+for
+.BR \-bind .
+The systemd unit
+.B anubis@NAME.service
+reads them from
+.IR /etc/anubis/NAME.env .
+.SH OPTIONS
+The most used options follow;
+.B anubis \-help
+lists all of them with their defaults.
+.TP
+.BI \-bind " address"
+Address to listen on (default :8923). Keep it on the loopback, behind the
+web server.
+.TP
+.BI \-bind\-network " tcp|unix"
+Address family of
+.BR \-bind .
+.TP
+.BI \-metrics\-bind " address"
+Address of the metrics and /healthz endpoint (default :9090).
+.TP
+.BI \-target " url"
+Where allowed requests go: http://host:port or unix:///path.
+.TP
+.BI \-policy\-fname " file"
+The policy (YAML or JSON); without it the built-in default applies.
+.TP
+.BI \-ed25519\-private\-key\-hex\-file " file"
+File holding the hex-encoded 32-byte ed25519 seed that signs the cookies.
+Without a key, a random one is generated at each start.
+.TP
+.BI \-difficulty " n"
+Default challenge difficulty.
+.TP
+.B \-serve\-robots\-txt
+Serve a robots.txt that disallows every robot.
+.TP
+.B \-version
+Print the version and exit.
+.SH FILES
+.TP
+.I /etc/anubis/NAME.env
+Environment of the instance NAME.
+.TP
+.I /etc/anubis/NAME.key
+Signing key of the instance NAME, readable by root only; the unit copies
+it for the service at each start.
+.TP
+.I /etc/anubis/botPolicies.yaml
+The default policy.
+.SH SEE ALSO
+.BR anubis\-robots2policy (1),
+.I /usr/share/doc/anubis/README.Debian

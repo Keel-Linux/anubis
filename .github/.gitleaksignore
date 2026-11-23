@@ -1,0 +1,4 @@
+# gitleaks false positives, by fingerprint. Each was read; none is a secret.
+# docs kubernetes.mdx: the name of an environment variable read from a
+# Kubernetes secretKeyRef (ED25519_PRIVATE_KEY_HEX), not a value.
+75b97eb03db9940eb43ccbaeacdda4cfc99ed778:docs/docs/admin/environments/kubernetes.mdx:generic-api-key:65

@@ -1,0 +1,180 @@
+Description: Refuse redir forms a browser resolves to another host
+ redir-same-host.patch allowed a redir with neither scheme nor host, and
+ Go parses `/\evil.example` that way, while browsers read `/\` as `//`:
+ http.Redirect sent it unchanged and the visitor landed on evil.example.
+ This backports the checks of upstream's validateRedirect (after
+ 1.27.0): no backslash, no control byte, no leading space, no opaque URL,
+ no path starting with `//`, a relative redir must start with `/`, only
+ http and https. They run on redir as given and again once it is
+ percent-decoded, so `/%2F/evil` and `/%5Cevil` are refused too; a
+ refusal answers "Invalid redirect" with 400 before the challenge is
+ looked up. TestPassChallengeRefusesRedirectTricks drives PassChallenge
+ with those forms, whitespace and CRLF among them, and checks that a
+ relative and a same-origin redir still pass.
+Origin: backport, https://github.com/TecharoHQ/anubis/blob/main/lib/http.go (validateRedirect)
+Author: Marcos Mendez <mendez.foto@gmail.com>
+Bug: https://github.com/Keel-Linux/anubis/pull/3
+Forwarded: not-needed
+Last-Update: 2026-10-02
+---
+--- a/lib/anubis.go
++++ b/lib/anubis.go
+@@ -496,6 +496,61 @@ func (s *Server) MakeChallenge(w http.Re
+ 	}
+ }
+ 
++var errInvalidRedirectForm = errors.New("invalid redirect")
++
++// validateRedirectForm refuses a redir that a browser would resolve to
++// another host although Go parses it with neither scheme nor host, as
++// upstream's validateRedirect (after 1.27.0) does: a backslash (browsers
++// read `/\evil` as `//evil`), a control byte, leading whitespace, an
++// opaque URL, a path starting with `//`, a relative redir that does not
++// start with `/`, and anything else than http and https. The same checks
++// run again on the percent-decoded string, so `/%2F/evil` and `/%5Cevil`
++// are refused too.
++func validateRedirectForm(redir string) error {
++	if redir == "" {
++		return errInvalidRedirectForm
++	}
++	if err := redirectFormLooksSafe(redir); err != nil {
++		return err
++	}
++	decoded, err := url.PathUnescape(redir)
++	if err != nil {
++		return fmt.Errorf("%w: %w", errInvalidRedirectForm, err)
++	}
++	return redirectFormLooksSafe(decoded)
++}
++
++func redirectFormLooksSafe(redir string) error {
++	if strings.HasPrefix(redir, " ") || strings.ContainsAny(redir, "\\") {
++		return errInvalidRedirectForm
++	}
++	for _, c := range redir {
++		if c < 0x20 || c == 0x7f {
++			return errInvalidRedirectForm
++		}
++	}
++	u, err := url.Parse(redir)
++	if err != nil {
++		return fmt.Errorf("%w: %w", errInvalidRedirectForm, err)
++	}
++	if u.Opaque != "" {
++		return errInvalidRedirectForm
++	}
++	switch u.Scheme {
++	case "":
++		if u.Host != "" || !strings.HasPrefix(redir, "/") || strings.HasPrefix(u.Path, "//") {
++			return errInvalidRedirectForm
++		}
++	case "http", "https":
++		if u.Hostname() == "" {
++			return errInvalidRedirectForm
++		}
++	default:
++		return errInvalidRedirectForm
++	}
++	return nil
++}
++
+ // redirectAllowed says whether pass-challenge may send the client to
+ // redir. A URL with userinfo never. A relative URL (no host, no scheme)
+ // always, as before. An absolute one: when allowed (REDIRECT_DOMAINS) is
+@@ -554,6 +609,11 @@ func (s *Server) PassChallenge(w http.Re
+ 	localizer := localization.GetLocalizer(r)
+ 
+ 	redir := r.FormValue("redir")
++	if err := validateRedirectForm(redir); err != nil {
++		lg.DebugContext(r.Context(), "invalid redirect", "err", err)
++		s.respondWithStatus(w, r, localizer.T("invalid_redirect"), "", http.StatusBadRequest)
++		return
++	}
+ 	redirURL, err := url.ParseRequestURI(redir)
+ 	if err != nil {
+ 		lg.ErrorContext(r.Context(), "invalid redirect", "err", err)
+--- /dev/null
++++ b/lib/redirect_validate_test.go
+@@ -0,0 +1,82 @@
++package lib
++
++import (
++	"net/http"
++	"net/http/httptest"
++	"net/url"
++	"strings"
++	"testing"
++
++	"github.com/TecharoHQ/anubis"
++)
++
++// TestPassChallengeRefusesRedirectTricks drives PassChallenge itself with
++// redir values that browsers resolve to another host although they have
++// neither scheme nor host in Go's parse: a backslash (`/\evil` is `//evil`
++// to a browser), an encoded slash or backslash, and leading whitespace or
++// control bytes. None may come back as a redirect; each is refused as an
++// invalid redirect before the challenge is looked at. A same-origin redir
++// passes that check and fails later, on the made-up challenge.
++func TestPassChallengeRefusesRedirectTricks(t *testing.T) {
++	srv := spawnAnubis(t, Options{
++		Next:   http.NewServeMux(),
++		Policy: loadPolicies(t, "testdata/aggressive_403.yaml", 0),
++	})
++
++	pass := func(redir string) *httptest.ResponseRecorder {
++		q := url.Values{
++			"id":          {"00000000-0000-0000-0000-000000000000"},
++			"response":    {"00"},
++			"nonce":       {"0"},
++			"elapsedTime": {"1"},
++			"redir":       {redir},
++		}
++		req := httptest.NewRequest("GET", "/.within.website/x/cmd/anubis/api/pass-challenge?"+q.Encode(), nil)
++		req.Host = "web.example.org"
++		req.Header.Set("X-Forwarded-Proto", "https")
++		req.Header.Set("X-Real-IP", "127.0.0.1")
++		req.Header.Set("User-Agent", "CHALLENGE")
++		req.AddCookie(&http.Cookie{Name: srv.cookieName(anubis.TestCookieName), Value: "x"})
++		w := httptest.NewRecorder()
++		srv.PassChallenge(w, req)
++		return w
++	}
++
++	for _, redir := range []string{
++		`/\evil.example`,
++		`/\/evil.example`,
++		`\\evil.example`,
++		`/%2F/evil.example`,
++		`/%2f%2fevil.example`,
++		`/%5Cevil.example`,
++		`/%5cevil.example`,
++		"\t//evil.example",
++		"%09//evil.example",
++		" //evil.example",
++		"//evil.example",
++		"/x\r\nLocation: https://evil.example/",
++		"evil.example",
++		"javascript:alert(1)",
++		"https:evil.example",
++		"",
++	} {
++		t.Run(redir, func(t *testing.T) {
++			w := pass(redir)
++			if loc := w.Header().Get("Location"); loc != "" {
++				t.Fatalf("redir %q: redirected to %q", redir, loc)
++			}
++			if !strings.Contains(w.Body.String(), "Invalid redirect") && !strings.Contains(w.Body.String(), "Redirect domain not allowed") {
++				t.Fatalf("redir %q: not refused as a redirect (status %d)", redir, w.Code)
++			}
++		})
++	}
++
++	for _, redir := range []string{"/page?x=1", "https://web.example.org/page"} {
++		t.Run("allowed "+redir, func(t *testing.T) {
++			body := pass(redir).Body.String()
++			if strings.Contains(body, "Invalid redirect") || strings.Contains(body, "Redirect domain not allowed") {
++				t.Fatalf("redir %q: refused as a redirect", redir)
++			}
++		})
++	}
++}

@@ -1,0 +1,97 @@
+Description: Do not clear the auth cookie in the answer to a request that sent none
+ maybeReverseProxy answered a request without the auth cookie with the
+ challenge page and a Set-Cookie that clears the cookie. A browser loads
+ subresources of the challenge page (here /favicon.ico, which the site
+ redirects to an image) while it solves the challenge. When such a request
+ leaves before the pass-challenge answer sets the cookie and its answer
+ comes back after it, the clearing Set-Cookie removes the cookie that the
+ browser has just received. The next page then passes with the cookie, and
+ its stylesheets and scripts get the challenge page instead: the page is
+ shown with no style.
+ .
+ A request that sent no cookie has no cookie to clear, so its answer now
+ sets none. A request that sent an invalid, expired or otherwise refused
+ cookie still gets it cleared, as before. TestNoClearCookieWithoutCookie
+ covers both.
+Author: Marcos Mendez <mendez.foto@gmail.com>
+Forwarded: no
+Last-Update: 2026-11-07
+---
+--- a/lib/anubis.go
++++ b/lib/anubis.go
+@@ -285,7 +285,11 @@ func (s *Server) maybeReverseProxy(w htt
+ 	ckie, err := s.getCookie(r, anubis.CookieName)
+ 	if err != nil {
+ 		lg.DebugContext(r.Context(), "cookie not found", "path", r.URL.Path)
+-		s.ClearCookie(w, CookieOpts{Path: cookiePath, Host: r.Host})
++		// No cookie came with the request, so there is none to clear. A
++		// Set-Cookie that clears it here can remove the cookie that a
++		// pass-challenge answer gave the browser at the same time: a
++		// subresource of the challenge page, sent before the browser had
++		// the cookie, is answered after it.
+ 		s.RenderIndex(w, r, cr, rule, httpStatusOnly)
+ 		return
+ 	}
+--- /dev/null
++++ b/lib/cookie_race_test.go
+@@ -0,0 +1,60 @@
++package lib
++
++import (
++	"net/http"
++	"net/http/httptest"
++	"testing"
++
++	"github.com/TecharoHQ/anubis"
++	"github.com/TecharoHQ/anubis/internal"
++)
++
++// clearsAuthCookie reports whether resp clears the auth cookie of srv.
++func clearsAuthCookie(srv *Server, resp *http.Response) bool {
++	for _, c := range resp.Cookies() {
++		if c.Name == srv.cookieName(anubis.CookieName) && c.MaxAge < 0 {
++			return true
++		}
++	}
++	return false
++}
++
++func challengeRequest(t *testing.T, ts *httptest.Server, cookie *http.Cookie) *http.Response {
++	t.Helper()
++	req, err := http.NewRequest(http.MethodGet, ts.URL+"/style.css", nil)
++	if err != nil {
++		t.Fatal(err)
++	}
++	req.Header.Set("User-Agent", "Mozilla/5.0 (X11; Linux x86_64) Chrome/140.0.0.0")
++	if cookie != nil {
++		req.AddCookie(cookie)
++	}
++	resp, err := http.DefaultClient.Do(req)
++	if err != nil {
++		t.Fatal(err)
++	}
++	resp.Body.Close()
++	return resp
++}
++
++// A request that sent no Anubis cookie gets the challenge and no Set-Cookie
++// that clears the cookie: that answer may reach the browser after the
++// answer of pass-challenge and delete the cookie it just set. A request
++// that sent an invalid cookie still gets it cleared.
++func TestNoClearCookieWithoutCookie(t *testing.T) {
++	srv := spawnAnubis(t, Options{
++		Next:   http.NewServeMux(),
++		Policy: loadPolicies(t, "", 4),
++	})
++	ts := httptest.NewServer(internal.RemoteXRealIP(true, "tcp", srv))
++	defer ts.Close()
++
++	if resp := challengeRequest(t, ts, nil); clearsAuthCookie(srv, resp) {
++		t.Errorf("a request without the cookie got a Set-Cookie that clears it: %v", resp.Header.Values("Set-Cookie"))
++	}
++
++	bad := &http.Cookie{Name: srv.cookieName(anubis.CookieName), Value: "not-a-jwt"}
++	if resp := challengeRequest(t, ts, bad); !clearsAuthCookie(srv, resp) {
++		t.Errorf("a request with an invalid cookie did not get it cleared: %v", resp.Header.Values("Set-Cookie"))
++	}
++}

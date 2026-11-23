@@ -1,0 +1,80 @@
+anubis (1.27.0-0+keel4) trixie; urgency=medium
+
+  * Do not clear the auth cookie in the answer to a request that sent
+    none (debian/patches/keep-cookie-of-request-without-cookie.patch).
+    A subresource of the challenge page, sent before the pass-challenge
+    answer set the cookie, was answered after it with a Set-Cookie that
+    cleared the new cookie; the next page then passed, but its
+    stylesheets and scripts got the challenge page. Seen on the WordPress
+    replica of a cloud advanced pair: 8 of 147 shots of the login page
+    had no style (BR2, 2026-11-07). An invalid or expired cookie is
+    still cleared.
+
+ -- Marcos Méndez <mendez.foto@gmail.com>  Sat, 07 Nov 2026 16:00:00 +0000
+
+anubis (1.27.0-0+keel3) trixie; urgency=medium
+
+  * Close pass-challenge's open redirect without REDIRECT_DOMAINS
+    (debian/patches/redir-same-host.patch): with it empty, redir may only
+    be relative or name the request's own scheme, host and port, never
+    carry userinfo; upstream compared redir's host with itself. Every
+    name a site is reached by keeps working, which a fixed
+    REDIRECT_DOMAINS cannot promise.
+  * Refuse redir forms a browser resolves to another host
+    (debian/patches/redir-validate.patch, a backport of upstream's
+    validateRedirect): backslashes (/\evil is //evil to a browser),
+    control bytes, leading space, opaque URLs, a path starting with //,
+    checked again after percent-decoding (/%2F/evil, /%5Cevil).
+  * autopkgtest: pass-challenge behind nginx allows the same host by an
+    unlisted name, a relative redir and an IPv6 literal, and refuses
+    another host, //evil, userinfo and another IPv6 address, and /\evil,
+    /%2F/evil, /%5Cevil, %09//evil and " //evil" as invalid.
+
+ -- Marcos Méndez <mendez.foto@gmail.com>  Fri, 02 Oct 2026 06:00:00 +0000
+
+anubis (1.27.0-0+keel2) trixie; urgency=medium
+
+  * Serve the challenge to clients that do not accept gzip
+    (debian/patches/challenge-without-gzip.patch). Upstream refused one
+    such request in 64 at random with HTTP 500, and Keel Web answered 500
+    to those clients (Keel-Linux/keel-web#2). A missing Accept-Encoding
+    accepts any coding; the proof of work is the defence. The patch adds
+    a test of 4096 requests without gzip, all challenged.
+  * Accept IPv6 literals ([2001:db8::1]) in REDIRECT_DOMAINS
+    (debian/patches/redirect-domains-ipv6.patch): Keel Web sets it to the
+    machine's names and addresses to close pass-challenge's open
+    redirect, and Anubis refused to start on an IPv6 entry.
+  * debian/rules: TestChallengeFor_ErrNotFound, skipped as flaky because
+    of that refusal, runs again.
+  * autopkgtest: 512 requests without Accept-Encoding through nginx all
+    get the challenge page with HTTP 200.
+
+ -- Marcos Méndez <mendez.foto@gmail.com>  Fri, 02 Oct 2026 04:00:00 +0000
+
+anubis (1.27.0-0+keel1) trixie; urgency=medium
+
+  * Keel Linux build for trixie, based on the Debian Go team's
+    work-in-progress packaging (salsa go-team/packages/anubis, ITP
+    #1102132), which is kept as the debian/sid branch of this repository.
+  * New upstream release 1.27.0, from upstream's signed
+    anubis-src-vendor tarball (Go modules vendored) plus an npm component
+    with the nine runtime JavaScript dependencies at the lockfile's
+    versions; the build never uses the network.
+  * Build with golang-1.26-go (trixie-backports), as go.mod requires
+    1.26.3; build the challenge assets with trixie's esbuild, and xess
+    with esbuild instead of postcss and cssnano.
+  * Ship anubis@.service: a disabled template, DynamicUser, hardened; it
+    refuses to start without /etc/anubis/<instance>.key, the signing key,
+    which it copies into the runtime directory for the dynamic user.
+  * Ship /etc/anubis/default.env (loopback only) and the upstream
+    default policy as /etc/anubis/botPolicies.yaml.
+  * Add an autopkgtest: the instance behind nginx challenges a browser
+    and an unverified Googlebot, and refuses to start without a key.
+
+ -- Marcos Méndez <mendez.foto@gmail.com>  Thu, 01 Oct 2026 12:00:00 +0000
+
+anubis (1.21.0~pre1-1) UNRELEASED; urgency=medium
+
+  * Initial release (Closes: #1102132)
+
+ -- Taavi Väänänen <taavi@debian.org>  Fri, 11 Jul 2025 12:46:27 +0200

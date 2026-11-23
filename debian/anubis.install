@@ -1,0 +1,4 @@
+_build/bin/anubis usr/bin
+_build/bin/anubis-robots2policy usr/bin
+debian/default.env etc/anubis
+data/botPolicies.yaml etc/anubis

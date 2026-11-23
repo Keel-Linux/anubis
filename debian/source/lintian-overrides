@@ -1,0 +1,10 @@
+# gbp builds the orig tarballs from the upstream/<version> tag, as there is
+# no pristine-tar branch (debian/README.source). Upstream's signature on
+# anubis-src-vendor-<version>.tar.gz is checked when that tarball is
+# imported, and the npm component is assembled from package-lock.json,
+# which upstream does not sign.
+anubis source: orig-tarball-missing-upstream-signature anubis_*.orig.tar.gz
+anubis source: orig-tarball-missing-upstream-signature anubis_*.orig-npm.tar.gz
+# The file of the Debian Go team's packaging on salsa (branch debian/sid),
+# kept under the same name so that the two can converge.
+anubis source: incorrect-packaging-filename better: debian/TODO [debian/TODO.Debian]
