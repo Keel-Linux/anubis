@@ -291,6 +291,97 @@ func TestTableLookupCompare__TABLE_TYPE(t *testing.T) {
 	}
 }
 
+func TestZonedLookup__TABLE_TYPE(t *testing.T) {
+	t.Parallel()
+
+	check := func(t *testing.T, table *_TABLE_TYPE[string], ip netip.Addr, want string, wantOK bool) {
+		t.Helper()
+
+		for _, probe := range []struct {
+			name string
+			ip   netip.Addr
+		}{
+			{name: "plain", ip: ip},
+			{name: "zoned", ip: ip.WithZone("eth0")},
+		} {
+
+			t.Run(probe.name, func(t *testing.T) {
+
+				if got := table.Contains(probe.ip); got != wantOK {
+					t.Fatalf("Contains(%q) = %v, want %v", probe.ip, got, wantOK)
+				}
+
+				// Skip value comparison for liteTable (no real payload)
+				if _, isLite := any(table).(*liteTable[string]); !isLite {
+					got, ok := table.Lookup(probe.ip)
+					if got != want || ok != wantOK {
+						t.Fatalf("Lookup(%q) = (%q, %v), want (%q, %v)", probe.ip, got, ok, want, wantOK)
+					}
+				} else {
+					_, ok := table.Lookup(probe.ip)
+					if ok != wantOK {
+						t.Fatalf("Lookup(%q) = (_, %v), want (_, %v)", probe.ip, ok, wantOK)
+					}
+				}
+			})
+		}
+	}
+
+	type route struct {
+		cidr  string
+		value string
+	}
+
+	tests := []struct {
+		name   string
+		routes []route
+		probe  string
+		want   string
+		wantOK bool
+	}{
+		{
+			name: "compressed leaf hit",
+			routes: []route{
+				{cidr: "2001:db8:1:2::/65", value: "specific"},
+			},
+			probe:  "2001:db8:1:2::1",
+			want:   "specific",
+			wantOK: true,
+		},
+		{
+			name: "leaf miss",
+			routes: []route{
+				{cidr: "2001:db8:1:2::/65", value: "specific"},
+			},
+			probe:  "2001:db8:1:2:8000::1",
+			wantOK: false,
+		},
+		{
+			name: "leaf miss falls back to less specific route",
+			routes: []route{
+				{cidr: "2001:db8:1::/48", value: "fallback"},
+				{cidr: "2001:db8:1:2::/65", value: "specific"},
+			},
+			probe:  "2001:db8:1:2:8000::1",
+			want:   "fallback",
+			wantOK: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			table := new(_TABLE_TYPE[string])
+			for _, route := range tt.routes {
+				table.Insert(mpp(route.cidr), route.value)
+			}
+
+			check(t, table, mpa(tt.probe), tt.want, tt.wantOK)
+		})
+	}
+}
+
 func TestTableLookupPrefixUnmasked__TABLE_TYPE(t *testing.T) {
 	// test that the pfx must not be masked on input for LookupPrefix
 	t.Parallel()
@@ -2246,4 +2337,54 @@ func TestTableEqual__TABLE_TYPE(t *testing.T) {
 			t.Error("expected true, got false")
 		}
 	})
+}
+
+func TestTableExtra__TABLE_TYPE(t *testing.T) {
+	t.Parallel()
+
+	// 1. Equal: checking self equality
+	t1 := new(_TABLE_TYPE[int])
+	t1.Insert(mpp("10.0.0.0/8"), 42)
+	t1.Insert(mpp("2001:db8::/32"), 42)
+
+	if !t1.Equal(t1) {
+		t.Error("expected table to be equal to itself")
+	}
+
+	// 2. Equal: checking different size4 / size6
+	t2 := new(_TABLE_TYPE[int])
+	t2.Insert(mpp("10.0.0.0/8"), 42)
+	if t1.Equal(t2) {
+		t.Error("expected false for different size6")
+	}
+
+	t3 := new(_TABLE_TYPE[int])
+	t3.Insert(mpp("2001:db8::/32"), 42)
+	if t1.Equal(t3) {
+		t.Error("expected false for different size4")
+	}
+
+	// 3. Overlaps6: checking when size6 is 0
+	emptyT := new(_TABLE_TYPE[int])
+	if t1.Overlaps6(emptyT) {
+		t.Error("expected false when other table has no IPv6 prefixes")
+	}
+	if emptyT.Overlaps6(t1) {
+		t.Error("expected false when this table has no IPv6 prefixes")
+	}
+
+	// 4. Fprint: nil writer check
+	var nilWriter io.Writer = nil
+	if err := t1.Fprint(nilWriter); err == nil {
+		t.Error("expected error when writing to nil writer")
+	}
+
+	// 5. ModifyPersist: no-op deletion of non-existing key
+	t4 := new(_TABLE_TYPE[int])
+	t5 := t4.ModifyPersist(mpp("10.0.0.0/8"), func(val int, ok bool) (int, bool) {
+		return 0, true
+	})
+	if t5 != t4 {
+		t.Error("expected same table pointer for no-op ModifyPersist")
+	}
 }

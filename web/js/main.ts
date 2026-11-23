@@ -1,25 +1,25 @@
+import { waitForExtensions } from "@lib/extensions";
 import algorithms from "./algorithms";
 import { fetchWithBackoff } from "./lib/backoff";
 import { g, u, j } from "@lib/xeact.mjs";
 
 // Tell the inline bootstrap in the challenge page that this script made it off
-// the wire and started running, so it stops trying to re-inject us. This must
-// stay at the top: everything below can fail, but none of those failures are
-// fixed by loading this file again.
-//
-// The bootstrap's watchdog can fire while a slow-but-healthy request is still
-// in flight, which leaves two copies of this module racing. They are injected
-// under different URLs, so the module map treats them as distinct and both
-// evaluate. Only the first one may actually solve the challenge; a second run
-// would spawn a duplicate set of workers and race to submit.
-const alreadyBooted =
-  // @ts-ignore: this variable is checked for in the watchdog script
-  (window as any).__anubisBooted === true;
+// the wire and started running.
 
-// @ts-ignore: tell the watchdog script it's done its job
-(window as any).__anubisBooted = true;
+declare global {
+  interface Window {
+    __anubisBooted?: boolean;
+  }
+}
 
-const imageURL = (mood: string, cacheBuster: string, basePrefix: string): string =>
+const alreadyBooted = window.__anubisBooted === true;
+window.__anubisBooted = true;
+
+const imageURL = (
+  mood: string,
+  cacheBuster: string,
+  basePrefix: string,
+): string =>
   u(`${basePrefix}/.within.website/x/cmd/anubis/static/img/${mood}.webp`, {
     cacheBuster,
   });
@@ -33,7 +33,9 @@ const getBrowserLanguage = async () => document.documentElement.lang;
 // an unhandled rejection here leaves the user staring at "Loading..." forever.
 // An untranslated challenge page still passes challenges, so the last resort is
 // an empty table, which makes t() fall through to the raw key.
-const loadTranslations = async (lang: string): Promise<Record<string, string>> => {
+const loadTranslations = async (
+  lang: string,
+): Promise<Record<string, string>> => {
   const basePrefix = j("anubis_base_prefix");
   if (basePrefix === null) {
     return {};
@@ -43,7 +45,7 @@ const loadTranslations = async (lang: string): Promise<Record<string, string>> =
     const response = await fetchWithBackoff(
       `${basePrefix}/.within.website/x/cmd/anubis/static/locales/${lang}.json`,
     );
-    return await response.json() as Record<string, string>;
+    return (await response.json()) as Record<string, string>;
   } catch (error) {
     console.warn(`Failed to load translations for ${lang}`, error);
     if (lang !== "en") {
@@ -75,7 +77,9 @@ const initTranslations = async () => {
 };
 
 const t = (key: string): string =>
-  translations[`js_${key}`] || translations[key] || `unknown translatable string: ${key}`;
+  translations[`js_${key}`] ||
+  translations[key] ||
+  `unknown translatable string: ${key}`;
 
 interface OhNoesParams {
   titleMsg: string;
@@ -171,7 +175,7 @@ interface OhNoesParams {
   try {
     const t0 = Date.now();
     const { hash, nonce } = await process(
-      { basePrefix, version: anubisVersion },
+      { basePrefix, version: anubisVersion, algorithm: rules.algorithm },
       challenge.randomData,
       rules.difficulty,
       null,
@@ -207,6 +211,8 @@ interface OhNoesParams {
     );
     const t1 = Date.now();
     console.log({ hash, nonce });
+
+    await waitForExtensions();
 
     if (userReadDetails) {
       const container: HTMLDivElement = document.getElementById(
