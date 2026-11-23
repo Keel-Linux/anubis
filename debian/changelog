@@ -31,10 +31,15 @@ anubis (1.28.2-0+keel1) trixie; urgency=medium
   * npm component refreshed from the 1.28.2 package-lock.json: preact
     10.29.8, and wasm-feature-detect 1.9.0 (new).
   * Build with golang-1.27-go from trixie-backports.
+  * autopkgtest: a challenge is told by its "randomData", as Anubis's
+    error and deny pages carry the anubis_challenge script too.
   * Patches:
     - challenge-without-gzip.patch: rebased. 1.28.0 (#1958) answers the
       sampled refusal with the policy's DENY status, which is 200 in
-      Keel's policy, so the test now checks the body as well.
+      Keel's policy, so the test now checks the body as well (a
+      challenge has "randomData"; every page has the anubis_challenge
+      script). Upstream's TestNonGzipClientGetsDenyStatus, which asserts
+      that the refusal happens, goes with the refusal.
     - redir-same-host.patch: rewritten for 1.28. Upstream's
       validateRedirect stays as it is; PassChallenge then also asks
       redirectAllowed, before both of its redirects (after a solved
