@@ -109,6 +109,12 @@ by wasm/scripts/build_wasm2js.sh from the baseline modules, with
 upstream's binaryen 130 build in the source (utils/wasm/wasm2js/
 wasm2js_130.wasm, Apache-2.0) run by the vendored wazero
 (utils/cmd/wazero-exec); and all JavaScript and CSS with esbuild.
+For 1.28.2 the argon2id and sha256 outputs are byte for byte those of
+upstream's npm vendor tarball; hashx.wasm.js differs in the choice of
+temporaries in a few functions (why was not found: upstream ran the
+same wasm2js_130.wasm under another runtime). It is the fallback for browsers without WebAssembly, run
+only by a policy that uses hashx; Keel's policy does not. Running
+wasm2js under wazero takes about ten minutes.
 
 Licences of the modules (debian/copyright): hashx.wasm contains hashx
 and equix, LGPL-3.0-only; every module contains wee_alloc and

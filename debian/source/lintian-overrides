@@ -2,9 +2,13 @@
 # no pristine-tar branch (debian/README.source). Upstream's signature on
 # anubis-src-vendor-<version>.tar.gz is checked when that tarball is
 # imported, and the npm component is assembled from package-lock.json,
-# which upstream does not sign.
+# which upstream does not sign. The wasm-modules component is six files
+# copied from upstream's signed anubis-src-vendor-npm-<version>.tar.gz,
+# whose signature is checked when it is imported; debian/rules checks the
+# files against wasm-modules/SHA256SUMS.
 anubis source: orig-tarball-missing-upstream-signature anubis_*.orig.tar.gz
 anubis source: orig-tarball-missing-upstream-signature anubis_*.orig-npm.tar.gz
+anubis source: orig-tarball-missing-upstream-signature anubis_*.orig-wasm-modules.tar.gz
 # The file of the Debian Go team's packaging on salsa (branch debian/sid),
 # kept under the same name so that the two can converge.
 anubis source: incorrect-packaging-filename better: debian/TODO [debian/TODO.Debian]
