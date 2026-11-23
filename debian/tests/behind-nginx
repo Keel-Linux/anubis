@@ -94,24 +94,26 @@ get() { # get NAME UA [CLIENT_IP]: body to $WORK/NAME, prints the status
 # since 1.28.0 with the policy's DENY status, which is 200 in the shipped
 # policy: so the body is checked, not only the status. 512 of them all
 # passing without challenge-without-gzip.patch had a chance of 1 in 3000.
+# A challenge is told by its "randomData": every page of Anubis, its error
+# and deny pages too, has the script id="anubis_challenge" (null there).
 i=0
 while [ "$i" -lt 512 ]; do
     code=$(curl -sS -o "$WORK/no-gzip" -w '%{http_code}' -A "$BROWSER" \
         -H "X-Test-Client: 203.0.113.11" "$FRONT/some/page")
-    [ "$code" = 200 ] && grep -q 'id="anubis_challenge"' "$WORK/no-gzip" \
+    [ "$code" = 200 ] && grep -q '"randomData"' "$WORK/no-gzip" \
         || fail "request $i without Accept-Encoding: HTTP $code, not the challenge"
     i=$((i + 1))
 done
 pass "512 requests without Accept-Encoding: the challenge page, HTTP 200, every time"
 
 code=$(get browser "$BROWSER" 203.0.113.10)
-grep -q 'id="anubis_challenge"' "$WORK/browser" \
+grep -q '"randomData"' "$WORK/browser" \
     || fail "a browser was not challenged (HTTP $code)"
 grep -q 'backend reached' "$WORK/browser" && fail "a browser reached the backend"
 pass "browser user agent from 203.0.113.10: challenge page (HTTP $code)"
 
 code=$(get bot-unverified "$GOOGLEBOT" 203.0.113.10)
-grep -q 'id="anubis_challenge"' "$WORK/bot-unverified" \
+grep -q '"randomData"' "$WORK/bot-unverified" \
     || fail "Googlebot from an unverified address was not challenged (HTTP $code)"
 pass "Googlebot user agent from 203.0.113.10: challenge page (HTTP $code)"
 
