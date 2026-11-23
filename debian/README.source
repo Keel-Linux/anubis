@@ -30,6 +30,11 @@ Its tree is upstream's signed tag vVERSION plus vendor/ and doc/; gbp
 import-orig --upstream-vcs-tag=vVERSION records the tag as the second
 parent of the import commit.
 
+The pre-commit hook of Keel checks only Keel's own files, not the files of
+upstream. To merge an import, make the merge commit on the upstream tree
+(the upstream tree is the first parent and keel/trixie is the second), so
+that the staged changes are only Keel's files.
+
 For 1.28.2 (checked 2026-11-23):
 
   anubis-src-vendor-1.28.2.tar.gz
