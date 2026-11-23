@@ -1,6 +1,7 @@
 #!/usr/bin/make -f
 
 include /usr/share/dpkg/pkg-info.mk
+include /usr/share/dpkg/buildopts.mk
 
 # Go 1.27.3 or newer is required by go.mod; trixie has it in
 # trixie-backports (golang-1.27-go), which installs under /usr/lib/go-1.27.
@@ -11,7 +12,20 @@ export PATH := $(CURDIR)/_build/shim:/usr/lib/go-1.27/bin:$(PATH)
 # dependency is in npm/ (the npm component of the source).
 export GOTOOLCHAIN := local
 export GOPROXY := off
-export GOFLAGS := -mod=vendor -trimpath -buildvcs=false
+# At most GO_MAX_PARALLEL packages are compiled, linked and tested at the
+# same time (go -p), not one for each CPU. Measured with Go 1.27 on this
+# source: a link of a test binary takes about 290 MiB on average and up to
+# 570 MiB, and the compile of the largest vendored package (go-redis) about
+# 1060 MiB. On a CI runner with 24 CPUs, 18 links and some compiles at the
+# same time went above the 1792 MiB that the runner gives a job, and the
+# job was killed. With 2, the worst case is that compile and one link,
+# about 1630 MiB, and two links take at most about 1150 MiB.
+# DEB_BUILD_OPTIONS=parallel=1 sets a lower number.
+GO_MAX_PARALLEL := 2
+GO_PARALLEL := $(shell n='$(DEB_BUILD_OPTION_PARALLEL)'; \
+	if [ -n "$$n" ] && [ "$$n" -lt $(GO_MAX_PARALLEL) ]; then echo "$$n"; \
+	else echo $(GO_MAX_PARALLEL); fi)
+export GOFLAGS := -mod=vendor -trimpath -buildvcs=false -p=$(GO_PARALLEL)
 export GOCACHE := $(CURDIR)/_build/go-cache
 export GOPATH := $(CURDIR)/_build/gopath
 export XDG_CACHE_HOME := $(CURDIR)/_build/cache
